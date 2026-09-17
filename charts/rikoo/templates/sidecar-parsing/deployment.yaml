@@ -1,0 +1,95 @@
+{{- $c := .Values.rikoo.sidecarParsing -}}
+{{- if $c.enabled }}
+{{- /*
+Rich PDF/Office parsing (Python, stateless). The only container that opens a user-supplied file;
+an xlsx/docx IS a zip archive and a few kilobytes can expand to gigabytes. The resource limits are
+the safety net: the worst case is a stateless pod OOM-killed and restarted, and a worker
+that falls back on its local parsers.
+*/ -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "rikoo.sidecar.serviceName" . }}
+  namespace: {{ $.Release.Namespace }}
+  labels:
+    {{- include "rikoo.labels" . | nindent 4 }}
+    app.kubernetes.io/component: sidecar-parsing
+  {{- with .Values.rikoo.deployment.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  replicas: {{ $c.replicas }}
+  revisionHistoryLimit: {{ .Values.rikoo.revisionHistoryLimit }}
+  selector:
+    matchLabels:
+      {{- include "rikoo.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: sidecar-parsing
+  template:
+    metadata:
+      {{- $podAnnotations := merge ($c.pod.annotations | default dict) (.Values.rikoo.pod.annotations | default dict) }}
+      {{- with $podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "rikoo.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: sidecar-parsing
+        {{- $podLabels := merge ($c.pod.labels | default dict) (.Values.rikoo.pod.labels | default dict) }}
+        {{- with $podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- include "rikoo.pullSecrets" (dict "root" . "component" $c) | nindent 6 }}
+      serviceAccountName: {{ include "rikoo.serviceAccountName" . }}
+      automountServiceAccountToken: {{ .Values.rikoo.serviceAccount.automountServiceAccountToken }}
+      securityContext:
+        {{- toYaml .Values.rikoo.podSecurityContext | nindent 8 }}
+      volumes:
+        - name: tmp
+          emptyDir: {}
+      containers:
+        - name: sidecar-parsing
+          securityContext:
+            {{- toYaml .Values.rikoo.securityContext | nindent 12 }}
+          image: {{ include "rikoo.image" (dict "root" . "component" $c) | quote }}
+          imagePullPolicy: {{ $c.image.pullPolicy | default .Values.rikoo.image.pullPolicy }}
+          env:
+            {{- with $c.maxUploadBytes }}
+            - name: SIDECAR_MAX_UPLOAD_BYTES
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with $c.maxTextChars }}
+            - name: SIDECAR_MAX_TEXT_CHARS
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with $c.pod.additionalEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          ports:
+            - name: http
+              containerPort: {{ $c.port }}
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 5
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            {{- toYaml $c.resources | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      {{- include "rikoo.scheduling" (dict "root" . "pod" $c.pod) | nindent 6 }}
+{{- end }}

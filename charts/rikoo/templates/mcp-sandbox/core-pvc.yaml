@@ -1,0 +1,20 @@
+{{- $s := .Values.rikoo.sandbox -}}
+{{- if and $s.enabled $s.core.workspace.persistence.enabled }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "rikoo.sandbox.serviceName" . }}-workspaces
+  namespace: {{ $.Release.Namespace }}
+  labels:
+    {{- include "rikoo.labels" . | nindent 4 }}
+    app.kubernetes.io/component: mcp-sandbox
+spec:
+  accessModes:
+    {{- toYaml $s.core.workspace.persistence.accessModes | nindent 4 }}
+  {{- with $s.core.workspace.persistence.storageClass }}
+  storageClassName: {{ . | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ $s.core.workspace.persistence.size }}
+{{- end }}

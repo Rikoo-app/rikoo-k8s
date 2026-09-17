@@ -1,0 +1,160 @@
+{{- $c := .Values.rikoo.worker -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "rikoo.worker.serviceName" . }}
+  namespace: {{ $.Release.Namespace }}
+  labels:
+    {{- include "rikoo.labels" . | nindent 4 }}
+    app.kubernetes.io/component: worker
+    {{- with $c.deployment.additionalLabels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+  {{- with (coalesce $c.deployment.annotations .Values.rikoo.deployment.annotations) }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- if not (or $c.hpa.enabled $c.keda.enabled) }}
+  replicas: {{ $c.replicas | default .Values.rikoo.replicas }}
+  {{- end }}
+  revisionHistoryLimit: {{ $c.revisionHistoryLimit | default .Values.rikoo.revisionHistoryLimit }}
+  {{- with (coalesce $c.deployment.strategy .Values.rikoo.deployment.strategy) }}
+  strategy:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "rikoo.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: worker
+  template:
+    metadata:
+      annotations:
+        {{- include "rikoo.podAnnotations" (dict "root" . "pod" $c.pod) | nindent 8 }}
+      labels:
+        {{- include "rikoo.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: worker
+        {{- $podLabels := merge ($c.pod.labels | default dict) (.Values.rikoo.pod.labels | default dict) }}
+        {{- with $podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- with $c.hostAliases }}
+      hostAliases:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- include "rikoo.pullSecrets" (dict "root" . "component" $c) | nindent 6 }}
+      serviceAccountName: {{ include "rikoo.serviceAccountName" . }}
+      automountServiceAccountToken: {{ .Values.rikoo.serviceAccount.automountServiceAccountToken }}
+      terminationGracePeriodSeconds: {{ $c.terminationGracePeriodSeconds }}
+      securityContext:
+        {{- toYaml .Values.rikoo.podSecurityContext | nindent 8 }}
+      {{- if or $c.waitForApi .Values.rikoo.extraInitContainers }}
+      initContainers:
+        {{- if $c.waitForApi }}
+        # The api entrypoint applies the migrations: a worker that starts first spends its first
+        # seconds failing on tables that do not exist yet.
+        - name: wait-for-api
+          image: {{ include "rikoo.image" (dict "root" . "component" $c) | quote }}
+          imagePullPolicy: {{ $c.image.pullPolicy | default .Values.rikoo.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.rikoo.securityContext | nindent 12 }}
+          command:
+            - node
+            - -e
+            - |
+              const url = process.env.API_READY_URL;
+              const deadline = Date.now() + 600_000;
+              const tick = () => fetch(url).then((r) => {
+                if (r.ok) { console.log('api ready'); process.exit(0); }
+                throw new Error(`status ${r.status}`);
+              }).catch((e) => {
+                if (Date.now() > deadline) { console.error('api not ready: ' + e.message); process.exit(1); }
+                setTimeout(tick, 3000);
+              });
+              tick();
+          env:
+            - name: API_READY_URL
+              value: {{ printf "http://%s:%v%s" (include "rikoo.api.serviceName" .) (.Values.rikoo.api.service.externalPort | default .Values.rikoo.api.service.port) (.Values.rikoo.api.readinessProbe.path | default "/readyz") | quote }}
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              memory: 128Mi
+        {{- end }}
+        {{- with .Values.rikoo.extraInitContainers }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- end }}
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        # Vault private key, worker ONLY: mounted as a read-only file, never in the api.
+        - name: sealing
+          {{- include "rikoo.sealing.volume" . | nindent 10 }}
+        {{- with .Values.rikoo.extraVolumes }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      containers:
+        {{- $additionalContainers := concat (.Values.rikoo.extraContainers | default list) ($c.pod.extraContainers | default list) }}
+        {{- with $additionalContainers }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+        - name: worker
+          securityContext:
+            {{- toYaml .Values.rikoo.securityContext | nindent 12 }}
+          image: {{ include "rikoo.image" (dict "root" . "component" $c) | quote }}
+          imagePullPolicy: {{ $c.image.pullPolicy | default .Values.rikoo.image.pullPolicy }}
+          env:
+            {{- include "rikoo.commonEnv" . | nindent 12 }}
+            {{- include "rikoo.workerEnv" . | nindent 12 }}
+            {{- $additionalEnv := concat (.Values.rikoo.additionalEnv | default list) ($c.pod.additionalEnv | default list) }}
+            {{- with $additionalEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          envFrom:
+            - configMapRef:
+                name: {{ include "rikoo.fullname" . }}-env
+            {{- $additionalEnvFrom := concat (.Values.rikoo.additionalEnvFrom | default list) ($c.pod.additionalEnvFrom | default list) }}
+            {{- with $additionalEnvFrom }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          ports:
+            - name: health
+              containerPort: {{ $c.healthPort }}
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: {{ $c.livenessProbe.path | default "/health" }}
+              port: health
+            initialDelaySeconds: {{ $c.livenessProbe.initialDelaySeconds | default 10 }}
+            periodSeconds: {{ $c.livenessProbe.periodSeconds | default 10 }}
+            timeoutSeconds: {{ $c.livenessProbe.timeoutSeconds | default 5 }}
+            successThreshold: {{ $c.livenessProbe.successThreshold | default 1 }}
+            failureThreshold: {{ $c.livenessProbe.failureThreshold | default 3 }}
+          readinessProbe:
+            httpGet:
+              path: {{ $c.readinessProbe.path | default "/health" }}
+              port: health
+            initialDelaySeconds: {{ $c.readinessProbe.initialDelaySeconds | default 5 }}
+            periodSeconds: {{ $c.readinessProbe.periodSeconds | default 10 }}
+            timeoutSeconds: {{ $c.readinessProbe.timeoutSeconds | default 5 }}
+            successThreshold: {{ $c.readinessProbe.successThreshold | default 1 }}
+            failureThreshold: {{ $c.readinessProbe.failureThreshold | default 3 }}
+          {{- with .Values.rikoo.extraLifecycle }}
+          lifecycle:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          resources:
+            {{- toYaml ($c.resources | default .Values.rikoo.resources) | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: sealing
+              mountPath: {{ include "rikoo.sealing.mountPath" . }}
+              readOnly: true
+            {{- with .Values.rikoo.extraVolumeMounts }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+      {{- include "rikoo.scheduling" (dict "root" . "pod" $c.pod) | nindent 6 }}

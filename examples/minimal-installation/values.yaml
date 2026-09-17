@@ -1,0 +1,59 @@
+# Minimal installation: every store bundled (PostgreSQL with pgvector, Redis, MinIO), the parsing
+# sidecar and the MCP sandbox, with credentials taken from ONE pre-created Secret (secret.yaml).
+#
+#   kubectl create namespace rikoo
+#   kubectl -n rikoo create secret docker-registry rikoo-registry \
+#     --docker-server=<registry> --docker-username=<user> --docker-password=<token>
+#   # fill in secret.yaml, then:
+#   kubectl -n rikoo apply -f secret.yaml
+#   helm install rikoo ../../charts/rikoo -n rikoo -f values.yaml \
+#     --set rikoo.image.registry=<registry>/<namespace> --set rikoo.image.tag=vX.Y.Z
+rikoo:
+  image:
+    # Registry namespace holding the Rikoo images, and the release tag to run. Both are required.
+    registry: ""
+    tag: ""
+    pullSecrets:
+      - name: rikoo-registry
+
+  publicUrl: http://localhost:3000
+  # Without an ingress: `kubectl -n rikoo port-forward svc/rikoo-api 3000:http`.
+  trustProxyHops: 0
+
+  secrets:
+    widgetSigningKey:
+      secretKeyRef:
+        name: rikoo
+        key: widget-signing-key
+    totpKey:
+      secretKeyRef:
+        name: rikoo
+        key: totp-key
+    sandboxTokenSecret:
+      secretKeyRef:
+        name: rikoo
+        key: sandbox-token-secret
+    sealing:
+      # Keys `sealing.pub` and `sealing.key` of the same Secret: the RSA 3072 pair you generated
+      # with OpenSSL. The chart never creates it.
+      existingSecret: rikoo
+
+postgresql:
+  # The sub-chart mounts this Secret (POSTGRES_USER / POSTGRES_PASSWORD / POSTGRES_DB) and the
+  # chart reads the same keys, so point both at the pre-created one.
+  auth:
+    existingSecret: rikoo
+    existingSecretPasswordKey: POSTGRES_PASSWORD
+  settings:
+    existingSecret: rikoo
+  env:
+    - name: POSTGRES_DB
+      valueFrom:
+        secretKeyRef:
+          name: rikoo
+          key: POSTGRES_DB
+
+s3:
+  # MinIO reads `rootUser` and `rootPassword` from this Secret; the chart hands the same pair to
+  # the api and the worker.
+  existingSecret: rikoo

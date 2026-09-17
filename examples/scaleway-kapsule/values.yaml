@@ -1,0 +1,144 @@
+# Rikoo on Scaleway Kapsule, with the stateful parts managed by the provider:
+#   - images pulled from a private Container Registry namespace;
+#   - managed PostgreSQL over a private network, managed Object Storage, Redis inside the cluster;
+#   - an ingress controller in front, terminating TLS and streaming server-sent events;
+#   - every credential coming from Secrets created before the install.
+#
+#   helm upgrade --install rikoo oci://<chart-registry>/rikoo -n rikoo \
+#     -f values.yaml --set rikoo.image.tag=vX.Y.Z
+rikoo:
+  image:
+    # Your Container Registry namespace, for instance rg.fr-par.scw.cloud/your-namespace.
+    registry: rg.fr-par.scw.cloud/your-namespace
+    tag: ""
+    pullSecrets:
+      - name: rikoo-registry
+
+  publicUrl: https://rikoo.example.com
+  trustProxyHops: 1
+  sessionSecureCookies: "true"
+  signupMode: invite
+  logging:
+    level: info
+    format: json
+
+  license:
+    deploymentLicense:
+      secretKeyRef:
+        name: rikoo-app
+        key: RIKOO_DEPLOYMENT_LICENSE
+
+  secrets:
+    widgetSigningKey:
+      secretKeyRef:
+        name: rikoo-app
+        key: WIDGET_SIGNING_KEY
+    totpKey:
+      secretKeyRef:
+        name: rikoo-app
+        key: RIKOO_TOTP_KEY
+    sandboxTokenSecret:
+      secretKeyRef:
+        name: rikoo-app
+        key: MCP_SANDBOX_TOKEN_SECRET
+    sealing:
+      # Keys `sealing.pub` and `sealing.key`, the RSA 3072 pair.
+      existingSecret: rikoo-sealing
+
+  smtp:
+    from: "Rikoo <no-reply@example.com>"
+    url:
+      secretKeyRef:
+        name: rikoo-app
+        key: SMTP_URL
+
+  otel:
+    # Empty means nothing is exported and nothing fails.
+    endpoint: ""
+    resourceAttributes: deployment.environment.name=production
+
+  ingress:
+    enabled: true
+    className: nginx
+    annotations:
+      cert-manager.io/cluster-issuer: letsencrypt
+      nginx.ingress.kubernetes.io/proxy-body-size: 12m
+      nginx.ingress.kubernetes.io/proxy-buffering: "off"
+      nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+      nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+    hosts:
+      - host: rikoo.example.com
+        paths:
+          - path: /
+            pathType: Prefix
+    tls:
+      enabled: true
+      secretName: rikoo-tls
+
+  api:
+    replicas: 2
+    resources:
+      requests:
+        cpu: 500m
+        memory: 512Mi
+      limits:
+        memory: 1Gi
+  worker:
+    replicas: 1
+    dbPool: 25
+    runConcurrency: 2
+    resources:
+      requests:
+        cpu: "1"
+        memory: 1Gi
+      limits:
+        memory: 2Gi
+    metrics:
+      serviceMonitor:
+        enabled: false
+
+  sidecarParsing:
+    enabled: true
+
+  sandbox:
+    enabled: true
+    core:
+      workspace:
+        persistence:
+          enabled: false
+
+  networkPolicy:
+    enabled: true
+
+postgresql:
+  deploy: false
+  url:
+    secretKeyRef:
+      name: rikoo-app
+      key: DATABASE_URL
+
+redis:
+  deploy: true
+  storage:
+    requestedSize: 8Gi
+    className: sbs-default
+  redisConfig: |
+    appendonly yes
+    maxmemory 256mb
+    maxmemory-policy noeviction
+
+s3:
+  deploy: false
+  endpoint: https://s3.fr-par.scw.cloud
+  browserEndpoint: https://s3.fr-par.scw.cloud
+  region: fr-par
+  bucket: rikoo
+  forcePathStyle: false
+  accessKeyId:
+    secretKeyRef:
+      name: rikoo-app
+      key: S3_ACCESS_KEY_ID
+  secretAccessKey:
+    secretKeyRef:
+      name: rikoo-app
+      key: S3_SECRET_ACCESS_KEY

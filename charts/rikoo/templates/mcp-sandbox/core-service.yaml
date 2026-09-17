@@ -1,0 +1,21 @@
+{{- $s := .Values.rikoo.sandbox -}}
+{{- if $s.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "rikoo.sandbox.serviceName" . }}
+  namespace: {{ $.Release.Namespace }}
+  labels:
+    {{- include "rikoo.labels" . | nindent 4 }}
+    app.kubernetes.io/component: mcp-sandbox
+spec:
+  type: ClusterIP
+  ports:
+    - port: {{ $s.core.port }}
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    {{- include "rikoo.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: mcp-sandbox
+{{- end }}

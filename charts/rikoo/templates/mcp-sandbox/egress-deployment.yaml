@@ -1,0 +1,104 @@
+{{- $s := .Values.rikoo.sandbox -}}
+{{- $c := $s.egress -}}
+{{- if $s.enabled }}
+{{- /*
+Guard proxy: the ONLY way out of the sandbox. It has no token, no workspace, no MCP surface — it
+is a guard, nothing else, and it runs as the unprivileged `node` user. It imports the same egress
+guard as the api and the worker: same allow-lists, decided on the resolved address at
+every hop.
+*/ -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "rikoo.sandbox.egressServiceName" . }}
+  namespace: {{ $.Release.Namespace }}
+  labels:
+    {{- include "rikoo.labels" . | nindent 4 }}
+    app.kubernetes.io/component: mcp-egress
+  {{- with .Values.rikoo.deployment.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  replicas: 1
+  revisionHistoryLimit: {{ .Values.rikoo.revisionHistoryLimit }}
+  selector:
+    matchLabels:
+      {{- include "rikoo.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: mcp-egress
+  template:
+    metadata:
+      {{- $podAnnotations := merge ($c.pod.annotations | default dict) (.Values.rikoo.pod.annotations | default dict) }}
+      {{- with $podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "rikoo.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: mcp-egress
+        rikoo.io/sandbox: "true"
+        {{- $podLabels := merge ($c.pod.labels | default dict) (.Values.rikoo.pod.labels | default dict) }}
+        {{- with $podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- include "rikoo.pullSecrets" (dict "root" . "component" $s) | nindent 6 }}
+      serviceAccountName: {{ include "rikoo.serviceAccountName" . }}
+      automountServiceAccountToken: false
+      securityContext:
+        {{- toYaml .Values.rikoo.podSecurityContext | nindent 8 }}
+      volumes:
+        - name: tmp
+          emptyDir: {}
+      containers:
+        - name: mcp-egress
+          securityContext:
+            {{- toYaml .Values.rikoo.securityContext | nindent 12 }}
+          image: {{ include "rikoo.image" (dict "root" . "component" $s) | quote }}
+          imagePullPolicy: {{ $s.image.pullPolicy | default .Values.rikoo.image.pullPolicy }}
+          env:
+            - name: SANDBOX_ROLE
+              value: egress
+            - name: SANDBOX_EGRESS_PROXY_PORT
+              value: {{ $c.port | quote }}
+            - name: SANDBOX_EGRESS_PROXY_HOST
+              value: "0.0.0.0"
+            # SAME values as the api and the worker: the outgoing policy is ONE.
+            {{- with .Values.rikoo.egress.allowCidrs }}
+            - name: RIKOO_EGRESS_ALLOW_CIDRS
+              value: {{ . | quote }}
+            {{- end }}
+            {{- with .Values.rikoo.egress.devAllowlist }}
+            - name: RIKOO_EGRESS_DEV_ALLOWLIST
+              value: {{ . | quote }}
+            {{- end }}
+            - name: LOG_LEVEL
+              value: {{ .Values.rikoo.logging.level | quote }}
+            {{- with $c.pod.additionalEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          ports:
+            - name: proxy
+              containerPort: {{ $c.port }}
+              protocol: TCP
+          livenessProbe:
+            tcpSocket:
+              port: proxy
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          readinessProbe:
+            tcpSocket:
+              port: proxy
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            {{- toYaml $c.resources | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      {{- include "rikoo.scheduling" (dict "root" . "pod" $c.pod) | nindent 6 }}
+{{- end }}

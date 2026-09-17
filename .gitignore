@@ -1,0 +1,22 @@
+# Helm
+Chart.lock
+charts/*/charts/*.tgz
+charts/*/charts/*/
+*.tgz
+charts/rikoo/tests/__snapshot__/
+
+# Local renders (make template / make examples)
+.render/
+
+# Never a secret in this repository: the examples carry placeholders only.
+# `secrets/` is anchored to the root on purpose: unanchored, it also swallowed
+# charts/rikoo/templates/secrets/, the Secret templates of the chart.
+*.key
+*.pem
+/secrets/
+*.dec.yaml
+
+# IDEs and OS
+.idea/
+.vscode/
+.DS_Store

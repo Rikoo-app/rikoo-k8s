@@ -1,0 +1,25 @@
+{{- $c := .Values.rikoo.worker -}}
+{{- if $c.keda.enabled }}
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: {{ include "rikoo.worker.serviceName" . }}
+  namespace: {{ $.Release.Namespace }}
+  labels:
+    {{- include "rikoo.labels" . | nindent 4 }}
+    app.kubernetes.io/component: worker
+spec:
+  scaleTargetRef:
+    name: {{ include "rikoo.worker.serviceName" . }}
+  minReplicaCount: {{ $c.keda.minReplicas }}
+  maxReplicaCount: {{ $c.keda.maxReplicas }}
+  pollingInterval: {{ $c.keda.pollingInterval }}
+  triggers:
+    - type: {{ $c.keda.triggerType }}
+      metricType: {{ $c.keda.metricType }}
+      metadata:
+        value: {{ $c.keda.value | quote }}
+        {{- with $c.keda.containerName }}
+        containerName: {{ . | quote }}
+        {{- end }}
+{{- end }}

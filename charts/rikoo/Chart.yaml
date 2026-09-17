@@ -1,0 +1,43 @@
+apiVersion: v2
+name: rikoo
+version: 0.1.0
+description: Control platform for AI agents in production (agents, RAG, tools/MCP, governance, observability) - api, worker, parsing sidecar and embedded MCP sandbox, with optional bundled PostgreSQL (pgvector), Redis and MinIO.
+type: application
+kubeVersion: ">=1.27.0-0"
+keywords:
+  - rikoo
+  - ai-agents
+  - llm
+  - rag
+  - mcp
+home: https://rikoo.io/
+sources:
+  - https://github.com/Rikoo-app/rikoo
+  - https://github.com/Rikoo-app/rikoo-k8s
+dependencies:
+  # PostgreSQL with pgvector, required by the retrieval engine. Disable to bring a managed one.
+  - name: postgres
+    version: 1.6.8
+    repository: https://groundhog2k.github.io/helm-charts/
+    condition: postgresql.deploy
+    alias: postgresql
+  # Redis, append-only and without eviction: sessions, run locks and job queues live there.
+  - name: redis
+    version: 2.4.7
+    repository: https://groundhog2k.github.io/helm-charts/
+    condition: redis.deploy
+    alias: redis
+  # MinIO. Disable to bring any S3-compatible object storage.
+  - name: minio
+    version: 5.4.0
+    repository: https://charts.min.io/
+    condition: s3.deploy
+    alias: s3
+annotations:
+  # Standard OCI key, carried by the published package.
+  org.opencontainers.image.licenses: MIT
+maintainers:
+  - name: Rikoo
+    url: https://rikoo.io/
+icon: https://rikoo.io/favicon.png
+appVersion: "0.0.0"

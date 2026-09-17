@@ -1,0 +1,82 @@
+{{- $m := .Values.rikoo.migrations.job -}}
+{{- if $m.enabled }}
+{{- /*
+Database migrations as a Helm hook, run from the api image, the one that carries the schema and
+its migrations. The command is idempotent and advisory-locked: the api entrypoint runs it again at
+start-up and finds nothing to do.
+
+post-install: on the first install the bundled PostgreSQL does not exist before the release, so a
+pre-install hook could only time out. pre-upgrade: a failing migration stops the release before
+any pod rolls. The Job is deleted before the next hook run and once it succeeds; a failed one
+stays for inspection (`kubectl logs job/<release>-migrations`).
+*/ -}}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "rikoo.fullname" . }}-migrations
+  namespace: {{ $.Release.Namespace }}
+  labels:
+    {{- include "rikoo.labels" . | nindent 4 }}
+    app.kubernetes.io/component: migrations
+  annotations:
+    helm.sh/hook: post-install,pre-upgrade
+    helm.sh/hook-weight: "-5"
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+    {{- with $m.annotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  backoffLimit: {{ $m.backoffLimit }}
+  activeDeadlineSeconds: {{ $m.activeDeadlineSeconds }}
+  template:
+    metadata:
+      labels:
+        {{- include "rikoo.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: migrations
+    spec:
+      restartPolicy: Never
+      {{- include "rikoo.pullSecrets" (dict "root" . "component" .Values.rikoo.api) | nindent 6 }}
+      serviceAccountName: {{ include "rikoo.serviceAccountName" . }}
+      automountServiceAccountToken: {{ .Values.rikoo.serviceAccount.automountServiceAccountToken }}
+      securityContext:
+        {{- toYaml .Values.rikoo.podSecurityContext | nindent 8 }}
+      volumes:
+        - name: tmp
+          emptyDir: {}
+      containers:
+        - name: migrations
+          securityContext:
+            {{- toYaml .Values.rikoo.securityContext | nindent 12 }}
+          image: {{ include "rikoo.image" (dict "root" . "component" .Values.rikoo.api) | quote }}
+          imagePullPolicy: {{ .Values.rikoo.api.image.pullPolicy | default .Values.rikoo.image.pullPolicy }}
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              echo "[migrations] waiting for PostgreSQL"
+              node -e '
+                const u = new URL(process.env.DATABASE_URL);
+                const net = require("node:net");
+                const deadline = Date.now() + Number(process.env.WAIT_TIMEOUT_SECONDS) * 1000;
+                const tick = () => {
+                  const s = net.connect(Number(u.port || 5432), u.hostname);
+                  s.once("connect", () => { s.destroy(); process.exit(0); });
+                  s.once("error", () => { s.destroy(); if (Date.now() > deadline) process.exit(1); setTimeout(tick, 2000); });
+                };
+                tick();
+              '
+              echo "[migrations] prisma migrate deploy"
+              cd /app/packages/shared && exec ./node_modules/.bin/prisma migrate deploy
+          env:
+            {{- include "rikoo.databaseEnv" (dict "root" . "pool" nil) | nindent 12 }}
+            - name: WAIT_TIMEOUT_SECONDS
+              value: {{ $m.waitTimeoutSeconds | quote }}
+            - name: NODE_ENV
+              value: {{ .Values.rikoo.nodeEnv | quote }}
+          resources:
+            {{- toYaml $m.resources | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      {{- include "rikoo.scheduling" (dict "root" . "pod" .Values.rikoo.api.pod) | nindent 6 }}
+{{- end }}

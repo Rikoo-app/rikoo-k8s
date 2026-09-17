@@ -1,0 +1,21 @@
+{{- $c := .Values.rikoo.sidecarParsing -}}
+{{- if $c.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "rikoo.sidecar.serviceName" . }}
+  namespace: {{ $.Release.Namespace }}
+  labels:
+    {{- include "rikoo.labels" . | nindent 4 }}
+    app.kubernetes.io/component: sidecar-parsing
+spec:
+  type: ClusterIP
+  ports:
+    - port: {{ $c.port }}
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    {{- include "rikoo.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: sidecar-parsing
+{{- end }}

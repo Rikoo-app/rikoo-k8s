@@ -1,0 +1,22 @@
+{{- $c := .Values.rikoo.worker -}}
+{{- if $c.pdb.create }}
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "rikoo.worker.serviceName" . }}
+  namespace: {{ $.Release.Namespace }}
+  labels:
+    {{- include "rikoo.labels" . | nindent 4 }}
+    app.kubernetes.io/component: worker
+spec:
+  {{- if $c.pdb.minAvailable }}
+  minAvailable: {{ $c.pdb.minAvailable }}
+  {{- end }}
+  {{- if or $c.pdb.maxUnavailable (not $c.pdb.minAvailable) }}
+  maxUnavailable: {{ $c.pdb.maxUnavailable | default 1 }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "rikoo.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: worker
+{{- end }}

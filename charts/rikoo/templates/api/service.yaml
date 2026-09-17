@@ -1,0 +1,35 @@
+{{- $c := .Values.rikoo.api -}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "rikoo.api.serviceName" . }}
+  namespace: {{ $.Release.Namespace }}
+  labels:
+    {{- include "rikoo.labels" . | nindent 4 }}
+    app.kubernetes.io/component: api
+    {{- with $c.service.additionalLabels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+  {{- with $c.service.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: {{ $c.service.type }}
+  ports:
+    - port: {{ $c.service.externalPort | default $c.service.port }}
+      targetPort: http
+      protocol: TCP
+      name: http
+      {{- if and (eq $c.service.type "NodePort") $c.service.nodePort }}
+      nodePort: {{ $c.service.nodePort }}
+      {{- end }}
+    {{- if eq .Values.rikoo.otel.api.metricsExporter "prometheus" }}
+    - port: {{ .Values.rikoo.otel.api.prometheusPort }}
+      targetPort: metrics
+      protocol: TCP
+      name: metrics
+    {{- end }}
+  selector:
+    {{- include "rikoo.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: api

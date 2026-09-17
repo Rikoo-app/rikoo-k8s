@@ -1,0 +1,121 @@
+{{- $s := .Values.rikoo.sandbox -}}
+{{- $np := .Values.rikoo.networkPolicy -}}
+{{- if and $s.enabled $np.enabled }}
+{{- /*
+The sandbox runs on its own isolated network, expressed here as NetworkPolicies:
+  - the core (shell) has NO route out except to the Playwright pod; only the worker reaches it;
+  - Playwright leaves only through mcp-egress; only the core reaches it;
+  - mcp-egress is the single exit; only Playwright reaches it.
+The api matches none of the ingress rules, so the boundary is held by the topology rather than by
+a promise in the code. The DNS rule is what lets the pods resolve each other's Service names.
+*/ -}}
+{{- $dns := list (dict "namespaceSelector" (dict "matchLabels" $np.dnsNamespaceSelector) "podSelector" (dict "matchLabels" $np.dnsPodSelector)) }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "rikoo.sandbox.serviceName" . }}
+  namespace: {{ $.Release.Namespace }}
+  labels:
+    {{- include "rikoo.labels" . | nindent 4 }}
+    app.kubernetes.io/component: mcp-sandbox
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "rikoo.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: mcp-sandbox
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              {{- include "rikoo.selectorLabels" . | nindent 14 }}
+              app.kubernetes.io/component: worker
+      ports:
+        - protocol: TCP
+          port: {{ $s.core.port }}
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              {{- include "rikoo.selectorLabels" . | nindent 14 }}
+              app.kubernetes.io/component: playwright-mcp
+      ports:
+        - protocol: TCP
+          port: {{ $s.playwright.port }}
+    - to:
+        {{- toYaml $dns | nindent 8 }}
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "rikoo.sandbox.playwrightServiceName" . }}
+  namespace: {{ $.Release.Namespace }}
+  labels:
+    {{- include "rikoo.labels" . | nindent 4 }}
+    app.kubernetes.io/component: playwright-mcp
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "rikoo.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: playwright-mcp
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              {{- include "rikoo.selectorLabels" . | nindent 14 }}
+              app.kubernetes.io/component: mcp-sandbox
+      ports:
+        - protocol: TCP
+          port: {{ $s.playwright.port }}
+  egress:
+    - to:
+        - podSelector:
+            matchLabels:
+              {{- include "rikoo.selectorLabels" . | nindent 14 }}
+              app.kubernetes.io/component: mcp-egress
+      ports:
+        - protocol: TCP
+          port: {{ $s.egress.port }}
+    - to:
+        {{- toYaml $dns | nindent 8 }}
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ include "rikoo.sandbox.egressServiceName" . }}
+  namespace: {{ $.Release.Namespace }}
+  labels:
+    {{- include "rikoo.labels" . | nindent 4 }}
+    app.kubernetes.io/component: mcp-egress
+spec:
+  podSelector:
+    matchLabels:
+      {{- include "rikoo.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: mcp-egress
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              {{- include "rikoo.selectorLabels" . | nindent 14 }}
+              app.kubernetes.io/component: playwright-mcp
+      ports:
+        - protocol: TCP
+          port: {{ $s.egress.port }}
+{{- end }}

@@ -1,0 +1,158 @@
+suite: external PostgreSQL, Redis and object storage
+templates:
+  - api/deployment.yaml
+  - worker/deployment.yaml
+  - secrets/postgresql-secret.yaml
+  - secrets/s3-secret.yaml
+tests:
+  - it: uses a full connection string from a Secret for a managed PostgreSQL
+    values:
+      - ../values.lint.yaml
+    set:
+      postgresql.deploy: false
+      postgresql.url.secretKeyRef:
+        name: rikoo-db
+        key: url
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DATABASE_URL
+            valueFrom:
+              secretKeyRef:
+                name: rikoo-db
+                key: url
+        template: worker/deployment.yaml
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: RIKOO_DB_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: rikoo-postgresql-auth
+                key: POSTGRES_PASSWORD
+        template: api/deployment.yaml
+      - hasDocuments:
+          count: 0
+        template: secrets/postgresql-secret.yaml
+
+  - it: builds the URL from host and auth for an external PostgreSQL with sslmode
+    values:
+      - ../values.lint.yaml
+    set:
+      postgresql.deploy: false
+      postgresql.host: db.example.internal
+      postgresql.connectionArgs: schema=public&sslmode=require
+      postgresql.auth.username: rikoo_app
+      postgresql.auth.password: s3cret
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DATABASE_URL
+            value: postgresql://rikoo_app:$(RIKOO_DB_PASSWORD)@db.example.internal:5432/rikoo?schema=public&sslmode=require
+        template: api/deployment.yaml
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: RIKOO_DB_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: RELEASE-NAME-rikoo-postgresql
+                key: password
+        template: api/deployment.yaml
+      - equal:
+          path: metadata.name
+          value: RELEASE-NAME-rikoo-postgresql
+        template: secrets/postgresql-secret.yaml
+
+  - it: sets APP_DATABASE_URL for the RLS role when provided
+    values:
+      - ../values.lint.yaml
+    set:
+      postgresql.appUrl.secretKeyRef:
+        name: rikoo-db
+        key: app-url
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: APP_DATABASE_URL
+            valueFrom:
+              secretKeyRef:
+                name: rikoo-db
+                key: app-url
+        template: api/deployment.yaml
+
+  - it: takes an external Redis URL from a Secret
+    values:
+      - ../values.lint.yaml
+    set:
+      redis.deploy: false
+      redis.url.secretKeyRef:
+        name: rikoo-redis
+        key: url
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: REDIS_URL
+            valueFrom:
+              secretKeyRef:
+                name: rikoo-redis
+                key: url
+        template: worker/deployment.yaml
+
+  - it: configures an external S3-compatible store (Scaleway Object Storage)
+    values:
+      - ../values.lint.yaml
+    set:
+      s3.deploy: false
+      s3.endpoint: https://s3.fr-par.scw.cloud
+      s3.browserEndpoint: https://s3.fr-par.scw.cloud
+      s3.region: fr-par
+      s3.forcePathStyle: false
+      s3.bucket: rikoo-beta
+      s3.accessKeyId.secretKeyRef:
+        name: rikoo-s3
+        key: access-key
+      s3.secretAccessKey.secretKeyRef:
+        name: rikoo-s3
+        key: secret-key
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: S3_ENDPOINT
+            value: https://s3.fr-par.scw.cloud
+        template: worker/deployment.yaml
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: S3_REGION
+            value: fr-par
+        template: worker/deployment.yaml
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: S3_FORCE_PATH_STYLE
+            value: "false"
+        template: api/deployment.yaml
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: S3_BROWSER_ENDPOINT
+            value: https://s3.fr-par.scw.cloud
+        template: api/deployment.yaml
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: S3_SECRET_ACCESS_KEY
+            valueFrom:
+              secretKeyRef:
+                name: rikoo-s3
+                key: secret-key
+        template: worker/deployment.yaml
+      - hasDocuments:
+          count: 0
+        template: secrets/s3-secret.yaml

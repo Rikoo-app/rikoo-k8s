@@ -1,0 +1,19 @@
+# Used to validate the chart offline (`helm lint . -f values.lint.yaml`, helm-unittest). It fills
+# the required fields with placeholders. It is NOT a deployment configuration.
+rikoo:
+  image:
+    registry: registry.example.com/rikoo
+    tag: v0.0.0-lint
+  secrets:
+    sealing:
+      # Placeholders shaped like the real pair (RSA 3072, PEM). Never a real key here.
+      publicKey:
+        value: |
+          -----BEGIN PUBLIC KEY-----
+          MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAlint
+          -----END PUBLIC KEY-----
+      privateKey:
+        value: |
+          -----BEGIN PRIVATE KEY-----
+          MIIEvQIBADANBgkqhkiG9w0BAQEFAASCBKcwggSjAgEAAoIBAQClint
+          -----END PRIVATE KEY-----

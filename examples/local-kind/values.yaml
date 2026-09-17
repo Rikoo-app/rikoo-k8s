@@ -1,0 +1,54 @@
+# Rikoo on a local kind cluster: everything bundled, images loaded from the workstation.
+# Procedure and image loading: see README.md next to this file.
+rikoo:
+  image:
+    # Prefix and tag under which the local images were loaded into the node.
+    registry: rikoo
+    tag: v0.0.0-kind
+  # No proxy in front: port-forward straight to the api Service.
+  publicUrl: http://localhost:3000
+  trustProxyHops: 0
+  logging:
+    level: debug
+    format: pretty
+  secrets:
+    # The only Secret a human creates: the vault sealing pair. The chart generates the rest.
+    sealing:
+      existingSecret: rikoo-sealing
+  api:
+    resources:
+      requests:
+        cpu: 200m
+        memory: 384Mi
+      limits:
+        memory: 1Gi
+  worker:
+    resources:
+      requests:
+        cpu: 200m
+        memory: 512Mi
+      limits:
+        memory: 1536Mi
+  sandbox:
+    playwright:
+      resources:
+        requests:
+          cpu: 100m
+          memory: 256Mi
+        limits:
+          memory: 1Gi
+
+postgresql:
+  storage:
+    requestedSize: 2Gi
+
+redis:
+  storage:
+    requestedSize: 1Gi
+
+s3:
+  # The browser would upload straight to MinIO: on kind, a port-forward stands in for the public
+  # route a real deployment gives it.
+  browserEndpoint: http://localhost:9000
+  persistence:
+    size: 4Gi

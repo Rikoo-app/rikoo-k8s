@@ -1,0 +1,31 @@
+{{- $c := .Values.rikoo.worker -}}
+{{- if $c.service.create }}
+# Internal only: the health probe and the operational metrics (/metrics) of the worker. Never
+# published through the ingress: a scrape target authenticates like neither an API client nor a
+# signed-in user, so it stays inside the cluster.
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "rikoo.worker.serviceName" . }}
+  namespace: {{ $.Release.Namespace }}
+  labels:
+    {{- include "rikoo.labels" . | nindent 4 }}
+    app.kubernetes.io/component: worker
+    {{- with $c.service.additionalLabels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+  {{- with $c.service.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: ClusterIP
+  ports:
+    - port: {{ $c.healthPort }}
+      targetPort: health
+      protocol: TCP
+      name: health
+  selector:
+    {{- include "rikoo.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: worker
+{{- end }}

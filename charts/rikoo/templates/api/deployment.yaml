@@ -1,0 +1,134 @@
+{{- $c := .Values.rikoo.api -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "rikoo.api.serviceName" . }}
+  namespace: {{ $.Release.Namespace }}
+  labels:
+    {{- include "rikoo.labels" . | nindent 4 }}
+    app.kubernetes.io/component: api
+    {{- with $c.deployment.additionalLabels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+  {{- with (coalesce $c.deployment.annotations .Values.rikoo.deployment.annotations) }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- if not (or $c.hpa.enabled $c.keda.enabled) }}
+  replicas: {{ $c.replicas | default .Values.rikoo.replicas }}
+  {{- end }}
+  revisionHistoryLimit: {{ $c.revisionHistoryLimit | default .Values.rikoo.revisionHistoryLimit }}
+  {{- with (coalesce $c.deployment.strategy .Values.rikoo.deployment.strategy) }}
+  strategy:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "rikoo.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: api
+  template:
+    metadata:
+      annotations:
+        {{- include "rikoo.podAnnotations" (dict "root" . "pod" $c.pod) | nindent 8 }}
+      labels:
+        {{- include "rikoo.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: api
+        {{- $podLabels := merge ($c.pod.labels | default dict) (.Values.rikoo.pod.labels | default dict) }}
+        {{- with $podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- with $c.hostAliases }}
+      hostAliases:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- include "rikoo.pullSecrets" (dict "root" . "component" $c) | nindent 6 }}
+      serviceAccountName: {{ include "rikoo.serviceAccountName" . }}
+      automountServiceAccountToken: {{ .Values.rikoo.serviceAccount.automountServiceAccountToken }}
+      terminationGracePeriodSeconds: {{ $c.terminationGracePeriodSeconds }}
+      securityContext:
+        {{- toYaml .Values.rikoo.podSecurityContext | nindent 8 }}
+      {{- with .Values.rikoo.extraInitContainers }}
+      initContainers:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        {{- with .Values.rikoo.extraVolumes }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      containers:
+        {{- $additionalContainers := concat (.Values.rikoo.extraContainers | default list) ($c.pod.extraContainers | default list) }}
+        {{- with $additionalContainers }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+        - name: api
+          securityContext:
+            {{- toYaml .Values.rikoo.securityContext | nindent 12 }}
+          image: {{ include "rikoo.image" (dict "root" . "component" $c) | quote }}
+          imagePullPolicy: {{ $c.image.pullPolicy | default .Values.rikoo.image.pullPolicy }}
+          env:
+            {{- include "rikoo.commonEnv" . | nindent 12 }}
+            {{- include "rikoo.apiEnv" . | nindent 12 }}
+            {{- $additionalEnv := concat (.Values.rikoo.additionalEnv | default list) ($c.pod.additionalEnv | default list) }}
+            {{- with $additionalEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          envFrom:
+            - configMapRef:
+                name: {{ include "rikoo.fullname" . }}-env
+            {{- $additionalEnvFrom := concat (.Values.rikoo.additionalEnvFrom | default list) ($c.pod.additionalEnvFrom | default list) }}
+            {{- with $additionalEnvFrom }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          ports:
+            - name: http
+              containerPort: {{ $c.service.port }}
+              protocol: TCP
+            {{- if eq .Values.rikoo.otel.api.metricsExporter "prometheus" }}
+            - name: metrics
+              containerPort: {{ .Values.rikoo.otel.api.prometheusPort }}
+              protocol: TCP
+            {{- end }}
+          {{- if $c.startupProbe.enabled }}
+          startupProbe:
+            httpGet:
+              path: {{ $c.startupProbe.path | default "/healthz" }}
+              port: http
+            periodSeconds: {{ $c.startupProbe.periodSeconds | default 5 }}
+            timeoutSeconds: {{ $c.startupProbe.timeoutSeconds | default 5 }}
+            failureThreshold: {{ $c.startupProbe.failureThreshold | default 60 }}
+          {{- end }}
+          livenessProbe:
+            httpGet:
+              path: {{ $c.livenessProbe.path | default "/healthz" }}
+              port: http
+            initialDelaySeconds: {{ $c.livenessProbe.initialDelaySeconds | default 10 }}
+            periodSeconds: {{ $c.livenessProbe.periodSeconds | default 10 }}
+            timeoutSeconds: {{ $c.livenessProbe.timeoutSeconds | default 5 }}
+            successThreshold: {{ $c.livenessProbe.successThreshold | default 1 }}
+            failureThreshold: {{ $c.livenessProbe.failureThreshold | default 3 }}
+          readinessProbe:
+            httpGet:
+              path: {{ $c.readinessProbe.path | default "/readyz" }}
+              port: http
+            initialDelaySeconds: {{ $c.readinessProbe.initialDelaySeconds | default 10 }}
+            periodSeconds: {{ $c.readinessProbe.periodSeconds | default 10 }}
+            timeoutSeconds: {{ $c.readinessProbe.timeoutSeconds | default 5 }}
+            successThreshold: {{ $c.readinessProbe.successThreshold | default 1 }}
+            failureThreshold: {{ $c.readinessProbe.failureThreshold | default 3 }}
+          {{- with .Values.rikoo.extraLifecycle }}
+          lifecycle:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          resources:
+            {{- toYaml ($c.resources | default .Values.rikoo.resources) | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            {{- with .Values.rikoo.extraVolumeMounts }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+      {{- include "rikoo.scheduling" (dict "root" . "pod" $c.pod) | nindent 6 }}

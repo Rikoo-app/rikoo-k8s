@@ -1,0 +1,905 @@
+# Rikoo Helm Chart Configuration
+#
+# Every variable this chart sets is part of the product's documented environment contract.
+# Anything not modelled below can be passed through `rikoo.additionalEnv` (all deployments) or
+# `rikoo.<component>.pod.additionalEnv`.
+
+# -- Override the name for the selector labels, defaults to the chart name
+nameOverride: ""
+
+# -- Override the full name of the deployed resources, defaults to a combination of the release name and the name for the selector labels
+fullnameOverride: ""
+
+# Core Rikoo configuration, shared by every component unless overridden per component below.
+rikoo:
+  # -- Canonical origin of the Studio (scheme + host, no path). Used for e-mail links and the
+  # anti-CSRF check: in production a wrong value refuses every mutation with a 403.
+  publicUrl: http://localhost:3000
+  # -- Origins allowed to call the api (comma-separated). Empty = `publicUrl` only. Widening it does
+  # NOT open the CSRF check: only `publicUrl` is authoritative in production.
+  corsOrigins: ""
+  # -- Number of trusted proxies in front of the api, explicit in production. 1 behind an ingress
+  # controller that sets X-Forwarded-For itself (ingress-nginx, Traefik). 0 = req.ip is the TCP peer.
+  trustProxyHops: 1
+  # -- Build version reported by `/api/v1/health` and stamped on logs and spans. Defaults to the image tag.
+  version: ""
+
+  logging:
+    # -- Log level of api and worker (trace, debug, info, warn, error, fatal)
+    level: info
+    # -- Log format: `json` (one line per event, for a collector) or `pretty` (debugging)
+    format: json
+    # -- Slow SQL query threshold in ms (0 disables the tracking)
+    slowQueryMs: 200
+
+  # -- Default locale of the Studio (`en` or `fr`). A cookie decides per reader; this is only the instance default.
+  locale: en
+  # -- Who can create an account: `invite`, `open` or `closed`. Empty = product default. Required by the hosted (saas) Studio.
+  signupMode: ""
+  # -- Force the Secure attribute on session cookies (`true`, `false`, or empty for the product default,
+  # which derives it from `publicUrl`). Keep true wherever the Studio is served over HTTPS.
+  sessionSecureCookies: ""
+
+  # Enterprise licence. Both are optional: absent, the instance runs the Community edition.
+  license:
+    # -- Deployment licence signed by the editor (JWT). Verified at boot by api and worker; set, no activation from a screen.
+    deploymentLicense:
+      value: ""
+      secretKeyRef:
+        name: ""
+        key: ""
+    # -- Historical Enterprise licence key (32 chars minimum), distinct from the deployment licence.
+    licenseKey:
+      value: ""
+      secretKeyRef:
+        name: ""
+        key: ""
+    # -- URL proposed by the Studio when a feature requires a higher edition. Empty = product default.
+    upgradeUrl: ""
+
+  # -- Feature flags (`RIKOO_FEATURE_<KEY>`): `true`/`false` per key, or null for the catalogue default.
+  # A disabled feature answers 404 before any other guard and the Studio hides its entry.
+  features:
+    usage: null
+    feedback: null
+    audit: null
+    variables: null
+    hitl: null
+    gates: null
+    connectors: null
+    sso: null
+    otlpFanout: null
+    alerting: null
+
+  # Application secrets. Each accepts `value` or `secretKeyRef`; left empty, the symmetric keys are
+  # generated on first install and persisted in `<release>-app` (helm.sh/resource-policy: keep).
+  # Under helm-template GitOps (ArgoCD), `lookup` cannot see the cluster: pin every key there.
+  secrets:
+    # -- Signing key of widget tokens (32 chars minimum). Rotating it invalidates every issued token.
+    widgetSigningKey:
+      value: ""
+      secretKeyRef:
+        name: ""
+        key: ""
+    # -- Key of the verified visitor identity, separate from the signing key so one can rotate without the other.
+    widgetVisitorKey:
+      value: ""
+      secretKeyRef:
+        name: ""
+        key: ""
+    # -- Encryption key of TOTP secrets at rest (32 chars minimum). Required by the hosted (saas) Studio.
+    totpKey:
+      value: ""
+      secretKeyRef:
+        name: ""
+        key: ""
+    # -- Shared secret between the worker and the MCP sandbox: it authenticates the caller and makes the workspace token unforgeable.
+    sandboxTokenSecret:
+      value: ""
+      secretKeyRef:
+        name: ""
+        key: ""
+    # Vault sealing pair. The api receives the PUBLIC key only: it seals secrets and cannot read
+    # them back. The PRIVATE key is mounted as a file in the worker alone, which is what makes the
+    # vault write-only on the api side. Helm cannot derive a public key from a private one, so the
+    # pair is never generated here. Create it once with OpenSSL (RSA 3072, PEM):
+    #   openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:3072 -out sealing.private
+    #   openssl pkey -in sealing.private -pubout -out sealing.public
+    # then hand it over through `existingSecret` or the two refs below.
+    sealing:
+      # -- Pre-created Secret holding the pair (mounted whole in the worker, public key read by the api).
+      existingSecret: ""
+      # -- Key of the public key (SPKI PEM) in `existingSecret`
+      existingSecretPublicKey: sealing.pub
+      # -- Key of the private key (PKCS#8 PEM) in `existingSecret`
+      existingSecretPrivateKey: sealing.key
+      # -- Key of the previous private keys in `existingSecret`, during a pair rotation. Empty = none.
+      existingSecretPreviousKey: ""
+      # -- Public key (PEM). Ignored when `existingSecret` is set.
+      publicKey:
+        value: ""
+        secretKeyRef:
+          name: ""
+          key: ""
+      # -- Private key (PEM), worker only. Ignored when `existingSecret` is set.
+      privateKey:
+        value: ""
+        secretKeyRef:
+          name: ""
+          key: ""
+      # -- Previous private keys (PEM), worker only, for the duration of a pair rotation.
+      previousPrivateKeys:
+        value: ""
+        secretKeyRef:
+          name: ""
+          key: ""
+
+  # Outgoing policy of the egress guard. Read by the api, the worker AND the sandbox egress
+  # proxy: the chart sets the same values on the three, a proxy more permissive than the worker
+  # would be a back door through the browser.
+  egress:
+    # -- Private CIDRs the operator knowingly allows (self-hosted MCP server on the LAN). Empty = none.
+    allowCidrs: ""
+    # -- Bare host names allowed in development only (`wiremock`, `minio`). Never in production.
+    devAllowlist: ""
+
+  # Attachment admission bounds, read by the four doors (api, widget, playground, Slack). Empty =
+  # product defaults (10 MB per file, 20 MB per turn, 5 attachments). The ingress body-size limit
+  # must be GREATER OR EQUAL to `maxBytes`, never the only limit: see `rikoo.ingress.annotations`.
+  attachments:
+    maxBytes: ""
+    maxAudioBytes: ""
+    maxPerTurn: ""
+    maxTurnBytes: ""
+    retentionDays: ""
+
+  # Transactional e-mail. Only the worker talks SMTP; absent, no mail leaves and nothing fails.
+  smtp:
+    # -- SMTP relay URL (`smtp://user:pass@host:587`). Prefer secretKeyRef.
+    url:
+      value: ""
+      secretKeyRef:
+        name: ""
+        key: ""
+    # -- Sender, `Name <address>`
+    from: ""
+    # Cloudflare transactional e-mail, when the host's provider closes the SMTP ports.
+    cloudflare:
+      accountId: ""
+      apiToken:
+        value: ""
+        secretKeyRef:
+          name: ""
+          key: ""
+
+  # OpenTelemetry. Absent, nothing is exported and nothing fails (docs/28). The worker exports the
+  # agent runs; the api exports its own HTTP telemetry ONLY where `api.*` says so.
+  otel:
+    # -- OTLP endpoint of the worker (traces of agent runs)
+    endpoint: ""
+    # -- OTLP traces endpoint of the worker, when it differs from `endpoint`
+    tracesEndpoint: ""
+    # -- OTLP headers (`key=value,...`), worker. Prefer secretKeyRef: it usually carries a token.
+    headers:
+      value: ""
+      secretKeyRef:
+        name: ""
+        key: ""
+    # -- `http/protobuf` (default) or `http/json`
+    protocol: ""
+    compression: ""
+    timeout: ""
+    sampler: ""
+    samplerArg: ""
+    # -- Global kill switch of the SDK
+    sdkDisabled: ""
+    logLevel: ""
+    # -- Resource attributes of both services, e.g. `deployment.environment.name=prod`
+    resourceAttributes: ""
+    # -- Conversational content in spans (OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT). Operator decision, OFF by default: a span carries media references, never media bytes.
+    captureMessageContent: false
+    api:
+      # -- OTLP endpoint of the api. Empty = the api exports nowhere (its HTTP spans do not belong in a GenAI backend).
+      endpoint: ""
+      tracesEndpoint: ""
+      headers:
+        value: ""
+        secretKeyRef:
+          name: ""
+          key: ""
+      # -- `none` or `prometheus`: `prometheus` opens `http.server.request.duration` on an internal port.
+      metricsExporter: none
+      # -- Port of the api Prometheus exporter (scraped, never published)
+      prometheusPort: 9464
+
+  # -- Node.js environment of api and worker. `production` makes the environment validation strict.
+  nodeEnv: production
+
+  serviceAccount:
+    # -- Whether to create a service account for all Rikoo deployments
+    create: true
+    # -- Annotations for the service account (IRSA, Workload Identity...)
+    annotations: {}
+    # -- Override the name of the service account to use, discovered automatically if not set
+    name: ""
+    # -- No Rikoo process talks to the Kubernetes API: the token is not mounted.
+    automountServiceAccountToken: false
+
+  ingress:
+    # -- Set to `true` to create the ingress in front of the api (Studio, public API, widget assets, SSE)
+    enabled: false
+    # -- Additional labels for the ingress resource
+    additionalLabels: {}
+    # -- Annotations for the ingress resource. SSE streams and attachment uploads need: (ingress-nginx)
+    # `nginx.ingress.kubernetes.io/proxy-body-size: 12m` (>= attachments.maxBytes),
+    # `nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"`, `nginx.ingress.kubernetes.io/proxy-buffering: "off"`.
+    annotations: {}
+    # -- The class name for the ingress resource
+    className: ""
+    # -- The hosts for the ingress resource
+    hosts: []
+    # Example:
+    # - host: "rikoo.example.com"
+    #   paths:
+    #     - path: /
+    #       pathType: Prefix
+    tls:
+      # -- Set to `true` to enable HTTPS on the ingress
+      enabled: false
+      # -- The name of the secret to use for the TLS key
+      secretName: ""
+
+  # -- Pod security context for api, worker, migrations and sidecar (the sandbox has its own)
+  podSecurityContext:
+    runAsNonRoot: true
+    runAsUser: 1000
+    runAsGroup: 1000
+    fsGroup: 1000
+    seccompProfile:
+      type: RuntimeDefault
+  # -- Container security context for api, worker, migrations and sidecar (the sandbox has its own).
+  # The root filesystem is read-only; `/tmp` is an emptyDir on every pod.
+  securityContext:
+    allowPrivilegeEscalation: false
+    readOnlyRootFilesystem: true
+    capabilities:
+      drop:
+        - ALL
+  # -- Node selector for all Rikoo deployments
+  nodeSelector: {}
+  # -- Tolerations for all Rikoo deployments
+  tolerations: []
+  # -- Affinity for all Rikoo deployments
+  affinity: {}
+  # -- PriorityClass for all Rikoo deployments
+  priorityClassName: ""
+  # -- DNS configuration for all Rikoo deployments
+  dnsConfig: {}
+  pod:
+    # -- Annotations for all Rikoo pods
+    annotations: {}
+    # -- Labels for all Rikoo pods
+    labels: {}
+    # -- Topology spread constraints for all Rikoo pods
+    topologySpreadConstraints: []
+  deployment:
+    # -- Annotations for all Rikoo deployments
+    annotations: {}
+    # -- Deployment strategy for all Rikoo deployments (can be overridden per component)
+    strategy: {}
+  # -- Number of replicas for all Rikoo deployments. Can be overridden per component
+  replicas: 1
+  # -- Number of old ReplicaSets to retain to allow rollback
+  revisionHistoryLimit: 10
+  # -- Resources for api and worker unless overridden per component
+  resources: {}
+  image:
+    # -- Registry namespace the four Rikoo images are pulled from. REQUIRED: there is no default,
+    # the images live wherever your release pipeline publishes them.
+    registry: ""
+    # -- Image tag, a release tag of rikoo (`vX.Y.Z`). REQUIRED: there is no default, an image without a version is a mistake.
+    tag: ""
+    # -- Pull policy for all Rikoo images. Tags are immutable release tags: IfNotPresent is safe.
+    pullPolicy: IfNotPresent
+    # -- Pull secrets for all Rikoo images (the registry is private)
+    pullSecrets: []
+    # e.g. - name: rikoo-registry
+
+  # -- Additional environment variables for api AND worker. Names must be declared in the product manifest.
+  additionalEnv: []
+  # -- Secrets or ConfigMaps of additional environment variables for api AND worker
+  additionalEnvFrom: []
+  # -- Additional containers for api and worker pods
+  extraContainers: []
+  # -- Additional volumes for api and worker pods
+  extraVolumes: []
+  # -- Additional init containers for api and worker pods
+  extraInitContainers: []
+  # -- Additional volume mounts for api and worker containers
+  extraVolumeMounts: []
+  # -- Additional lifecycle hooks for api and worker containers
+  extraLifecycle: {}
+
+  # Prisma migrations. The api image applies `prisma migrate deploy` at start-up (idempotent,
+  # advisory-locked). The Job below runs the same command BEFORE the pods roll on an upgrade, so a
+  # failing migration stops the release instead of a crash-looping api. On first install it runs
+  # after the release (post-install): a pre-install hook would wait for a database that the release
+  # has not created yet.
+  migrations:
+    job:
+      # -- Run migrations in a Helm hook Job (post-install, pre-upgrade)
+      enabled: true
+      # -- Annotations for the Job (in addition to the hook annotations)
+      annotations: {}
+      backoffLimit: 3
+      activeDeadlineSeconds: 900
+      # -- Seconds the Job waits for PostgreSQL to accept connections before running
+      waitTimeoutSeconds: 300
+      resources:
+        requests:
+          cpu: 100m
+          memory: 256Mi
+        limits:
+          memory: 512Mi
+
+  # NetworkPolicies. The sandbox policies encode docs/18: the shell has no network at all and the
+  # browser leaves only through the egress proxy; the api reaches neither.
+  networkPolicy:
+    # -- Create the NetworkPolicies (requires a CNI that enforces them: Cilium, Calico, Kapsule default)
+    enabled: true
+    # -- Namespace label selector of the DNS resolver, for the sandbox pods' egress rule
+    dnsNamespaceSelector:
+      kubernetes.io/metadata.name: kube-system
+    # -- Pod label selector of the DNS resolver
+    dnsPodSelector:
+      k8s-app: kube-dns
+
+  # ── api ──────────────────────────────────────────────────────────────────────────────────────
+  # NestJS REST + SSE, serves the Studio and the widget bundle. Synchronous only: it never calls
+  # an external service itself, it enqueues work for the worker.
+  api:
+    image:
+      # -- Image name under `rikoo.image.registry`
+      repository: rikoo-api
+      # -- Tag override. Using `rikoo.image.tag` if not set.
+      tag: null
+      pullPolicy: null
+      pullSecrets: null
+    deployment:
+      additionalLabels: {}
+      annotations: {}
+      # -- Deployment strategy. Overrides the global one.
+      strategy: {}
+    pod:
+      annotations: {}
+      labels: {}
+      nodeSelector: null
+      tolerations: null
+      affinity: null
+      topologySpreadConstraints: null
+      priorityClassName: null
+      extraContainers: []
+      # -- Additional environment variables for the api pods only
+      additionalEnv: []
+      additionalEnvFrom: []
+    service:
+      # -- Service type of the api (the ingress targets it)
+      type: ClusterIP
+      # -- Listening port of the api (`PORT`)
+      port: 3000
+      externalPort: null
+      nodePort: null
+      additionalLabels: {}
+      annotations: {}
+    # -- Resources for the api pods. Defaults to `rikoo.resources`.
+    resources:
+      requests:
+        cpu: 250m
+        memory: 512Mi
+      limits:
+        memory: 1Gi
+    # -- Replicas if HPA/KEDA is not enabled. Defaults to `rikoo.replicas`
+    replicas: null
+    revisionHistoryLimit: null
+    # -- Additional settings of the api, rendered as environment variables (names of the product manifest)
+    settings: {}
+    # e.g. S3_MAX_UPLOAD_BYTES: "20000000"
+    hpa:
+      enabled: false
+      annotations: {}
+      minReplicas: 1
+      maxReplicas: 3
+      targetCPUUtilizationPercentage: 70
+      targetMemoryUtilizationPercentage: null
+    keda:
+      enabled: false
+      minReplicas: 1
+      maxReplicas: 3
+      pollingInterval: 30
+      triggerType: "cpu"
+      metricType: "Utilization"
+      value: "70"
+      containerName: ""
+    pdb:
+      # -- Create a PodDisruptionBudget for the api
+      create: true
+      minAvailable: ""
+      maxUnavailable: ""
+    hostAliases: []
+    # Liveness touches NO dependency (a Postgres outage must not restart healthy processes).
+    livenessProbe:
+      path: /healthz
+      initialDelaySeconds: 10
+      periodSeconds: 10
+      timeoutSeconds: 5
+      failureThreshold: 3
+      successThreshold: 1
+    # Readiness pings Postgres and Redis: a failure removes the replica from the Service.
+    readinessProbe:
+      path: /readyz
+      initialDelaySeconds: 10
+      periodSeconds: 10
+      timeoutSeconds: 5
+      failureThreshold: 3
+      successThreshold: 1
+    # Start-up covers the migrations applied by the entrypoint (up to failureThreshold × period).
+    startupProbe:
+      enabled: true
+      path: /healthz
+      periodSeconds: 5
+      timeoutSeconds: 5
+      failureThreshold: 60
+    # -- Seconds granted to in-flight requests and SSE streams on shutdown
+    terminationGracePeriodSeconds: 30
+    metrics:
+      serviceMonitor:
+        # -- Create a ServiceMonitor scraping the api Prometheus exporter (needs `rikoo.otel.api.metricsExporter: prometheus`)
+        enabled: false
+        additionalLabels: {}
+        interval: 30s
+
+  # ── worker ───────────────────────────────────────────────────────────────────────────────────
+  # NestJS standalone + BullMQ: LLM calls, runs, RAG, e-mails, secrets vault (private key here only).
+  worker:
+    image:
+      repository: rikoo-worker
+      tag: null
+      pullPolicy: null
+      pullSecrets: null
+    deployment:
+      additionalLabels: {}
+      annotations: {}
+      strategy: {}
+    pod:
+      annotations: {}
+      labels: {}
+      nodeSelector: null
+      tolerations: null
+      affinity: null
+      topologySpreadConstraints: null
+      priorityClassName: null
+      extraContainers: []
+      additionalEnv: []
+      additionalEnvFrom: []
+    # -- Health/metrics port of the worker (`WORKER_HEALTH_PORT`, internal, never published)
+    healthPort: 3100
+    service:
+      # -- Create a headless-less ClusterIP Service on the health port (metrics scraping)
+      create: true
+      additionalLabels: {}
+      annotations: {}
+    resources:
+      requests:
+        cpu: 500m
+        memory: 1Gi
+      limits:
+        memory: 2Gi
+    replicas: null
+    revisionHistoryLimit: null
+    # -- PostgreSQL connections per worker replica (`connection_limit`). Multiply by the replica count and compare with the database maximum before scaling.
+    dbPool: 25
+    # -- Runs driven in parallel by one worker (`RUN_CONCURRENCY`)
+    runConcurrency: 1
+    # -- Additional settings of the worker, rendered as environment variables (RUN_*, RAG_*, KNOWLEDGE_*...)
+    settings: {}
+    # e.g. RUN_LOCK_TTL_MS: "60000"
+    # -- Wait for the api to be ready before starting (its entrypoint applies the migrations; a worker that starts first fails on missing tables for a few seconds)
+    waitForApi: true
+    hpa:
+      enabled: false
+      annotations: {}
+      minReplicas: 1
+      maxReplicas: 3
+      targetCPUUtilizationPercentage: 70
+      targetMemoryUtilizationPercentage: null
+    keda:
+      enabled: false
+      minReplicas: 1
+      maxReplicas: 3
+      pollingInterval: 30
+      triggerType: "cpu"
+      metricType: "Utilization"
+      value: "70"
+      containerName: ""
+    pdb:
+      create: true
+      minAvailable: ""
+      maxUnavailable: ""
+    hostAliases: []
+    livenessProbe:
+      path: /health
+      initialDelaySeconds: 10
+      periodSeconds: 10
+      timeoutSeconds: 5
+      failureThreshold: 3
+      successThreshold: 1
+    readinessProbe:
+      path: /health
+      initialDelaySeconds: 5
+      periodSeconds: 10
+      timeoutSeconds: 5
+      failureThreshold: 3
+      successThreshold: 1
+    # -- Seconds granted to finish the current step of every run before SIGKILL (the run engine is at-least-once and replays, so a cut costs no duplicate effect)
+    terminationGracePeriodSeconds: 60
+    metrics:
+      serviceMonitor:
+        # -- Create a ServiceMonitor scraping `/metrics` on the health port (queue depth, outbox lag, provider latency)
+        enabled: false
+        additionalLabels: {}
+        interval: 30s
+
+  # ── sidecar-parsing ──────────────────────────────────────────────────────────────────────────
+  # Optional rich PDF/Office parsing (Python). Without it the worker falls back on its local parsers.
+  # Stateless. Resource limits are a safety net against decompression bombs.
+  sidecarParsing:
+    # -- Deploy the parsing sidecar
+    enabled: true
+    image:
+      repository: rikoo-sidecar-parsing
+      tag: null
+      pullPolicy: null
+      pullSecrets: null
+    replicas: 1
+    port: 8001
+    resources:
+      requests:
+        cpu: 250m
+        memory: 256Mi
+      limits:
+        cpu: "1"
+        memory: 1Gi
+    # -- Maximum upload size accepted by the sidecar (`SIDECAR_MAX_UPLOAD_BYTES`); empty = service default (64 MiB)
+    maxUploadBytes: ""
+    # -- Maximum extracted text (`SIDECAR_MAX_TEXT_CHARS`); empty = service default
+    maxTextChars: ""
+    # -- URL the worker uses (`RAG_SIDECAR_URL`). Empty = the in-cluster Service; set it to point at an external sidecar when `enabled: false`.
+    url: ""
+    pod:
+      annotations: {}
+      labels: {}
+      nodeSelector: null
+      tolerations: null
+      affinity: null
+      topologySpreadConstraints: null
+      priorityClassName: null
+      additionalEnv: []
+    pdb:
+      create: false
+      minAvailable: ""
+      maxUnavailable: ""
+
+  # ── Embedded MCP sandbox (docs/18) ───────────────────────────────────────────────────────────
+  # Three default capabilities (Files, Shell, Browser) isolated per run. Availability is NOT fatal:
+  # circuit breaker, tool error, the run continues. One image, two roles (core / egress) plus the
+  # upstream Playwright MCP image. The NetworkPolicies are what keeps the shell off the network.
+  sandbox:
+    # -- Deploy the embedded MCP sandbox (core + egress proxy + Playwright)
+    enabled: true
+    image:
+      repository: rikoo-mcp-sandbox
+      tag: null
+      pullPolicy: null
+      pullSecrets: null
+    core:
+      port: 8090
+      # -- Shell command timeout (ms)
+      shellTimeoutMs: 30000
+      # -- Maximum bytes of a shell command output
+      shellMaxOutputBytes: 262144
+      # -- Idle TTL of a workspace (ms)
+      idleTtlMs: 600000
+      # Workspaces root (`/workspaces`): the ONLY writable location, an ephemeral working buffer per
+      # run, never a source of truth. emptyDir by default; a PVC only to survive a pod restart.
+      workspace:
+        persistence:
+          enabled: false
+          size: 10Gi
+          storageClass: ""
+          accessModes:
+            - ReadWriteOnce
+        # -- emptyDir size limit when persistence is disabled
+        sizeLimit: 5Gi
+      resources:
+        requests:
+          cpu: 250m
+          memory: 512Mi
+        limits:
+          cpu: "1"
+          memory: 1Gi
+      livenessProbe:
+        initialDelaySeconds: 10
+        periodSeconds: 10
+        timeoutSeconds: 5
+        failureThreshold: 6
+      pod:
+        annotations: {}
+        labels: {}
+        nodeSelector: null
+        tolerations: null
+        affinity: null
+        priorityClassName: null
+        additionalEnv: []
+    egress:
+      port: 8899
+      resources:
+        requests:
+          cpu: 100m
+          memory: 128Mi
+        limits:
+          memory: 512Mi
+      pod:
+        annotations: {}
+        labels: {}
+        nodeSelector: null
+        tolerations: null
+        affinity: null
+        priorityClassName: null
+        additionalEnv: []
+    playwright:
+      image:
+        # -- Upstream Playwright MCP image, taken as is
+        repository: mcr.microsoft.com/playwright/mcp
+        tag: v0.0.79
+        pullPolicy: IfNotPresent
+        pullSecrets: []
+      port: 8931
+      resources:
+        requests:
+          cpu: 250m
+          memory: 512Mi
+        limits:
+          cpu: "2"
+          memory: 2Gi
+      # -- Shared memory for Chromium (`/dev/shm` emptyDir in memory)
+      shmSizeLimit: 512Mi
+      pod:
+        annotations: {}
+        labels: {}
+        nodeSelector: null
+        tolerations: null
+        affinity: null
+        priorityClassName: null
+    # -- URL the worker uses (`MCP_SANDBOX_URL`). Empty = the in-cluster Service of the core role.
+    url: ""
+
+# ── PostgreSQL ────────────────────────────────────────────────────────────────────────────────
+# Bundled via groundhog2k/postgres with a pgvector image. Single instance, no HA:
+# for production point at a managed PostgreSQL (Scaleway RDB in the beta profile) with `deploy: false`.
+postgresql:
+  # -- Deploy PostgreSQL via the bundled sub-chart. Disable to use an external or managed PostgreSQL.
+  deploy: true
+  # -- PostgreSQL host when `deploy` is false. Ignored when `url` is set.
+  host: ""
+  # -- PostgreSQL port
+  port: 5432
+  # -- Query string appended to the connection URL (`schema=public` is the product's convention; `sslmode=require` for a managed database)
+  connectionArgs: "schema=public"
+  # -- Full owner connection string (`DATABASE_URL`) for an external database. Takes precedence over host/auth. Prefer secretKeyRef.
+  url:
+    value: ""
+    secretKeyRef:
+      name: ""
+      key: ""
+  # -- Connection string of a NON-owner role (`APP_DATABASE_URL`) so that RLS policies filter (PostgreSQL exempts the owner). Optional; the tenant path falls back on the owner URL.
+  appUrl:
+    value: ""
+    secretKeyRef:
+      name: ""
+      key: ""
+  auth:
+    # -- Role Rikoo connects with. When `deploy` is true it is the superuser of the bundled instance, because the first migration creates the pgvector and citext extensions.
+    username: rikoo
+    # -- Password. Leave empty to have the chart generate one (persisted in the chart-managed Secret).
+    password: ""
+    # -- Existing Secret holding the password (`auth.password` is then ignored)
+    existingSecret: ""
+    # -- Key of the password in `existingSecret`
+    existingSecretPasswordKey: password
+    # -- Database name
+    database: rikoo
+
+  # Sub-chart settings (groundhog2k/postgres), passed through as is.
+  image:
+    registry: docker.io
+    # -- PostgreSQL 16 with the pgvector extension
+    repository: pgvector/pgvector
+    tag: pg16
+    pullPolicy: IfNotPresent
+  # -- Log prefix naming the database and the client, so a stray error can be attributed
+  args:
+    - "-c"
+    - "log_line_prefix=%m [%p] %q%u@%d/%a "
+  settings:
+    # -- Name of the chart-managed auth Secret (keys POSTGRES_USER / POSTGRES_PASSWORD / POSTGRES_DB). Static because Helm cannot template sub-chart values: override it (with `postgresql.env`) to run two releases in one namespace.
+    existingSecret: rikoo-postgresql-auth
+    superuser:
+      secretKey: POSTGRES_USER
+    superuserPassword:
+      secretKey: POSTGRES_PASSWORD
+  # -- Extra env of the PostgreSQL container. POSTGRES_DB names the database created at first start.
+  env:
+    - name: POSTGRES_DB
+      valueFrom:
+        secretKeyRef:
+          name: rikoo-postgresql-auth
+          key: POSTGRES_DB
+  service:
+    type: ClusterIP
+    port: 5432
+  storage:
+    requestedSize: 20Gi
+    className: ""
+    accessModes:
+      - ReadWriteOnce
+    persistentVolumeClaimRetentionPolicy:
+      whenDeleted: Retain
+      whenScaled: Retain
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      memory: 2Gi
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+# ── Redis ─────────────────────────────────────────────────────────────────────────────────────
+# Bundled via groundhog2k/redis. Sessions, run locks and queues
+# tolerate a restart; append-only + noeviction as in the beta profile.
+redis:
+  # -- Deploy Redis via the bundled sub-chart. Disable to use an external Redis.
+  deploy: true
+  # -- Redis host when `deploy` is false. Ignored when `url` is set.
+  host: ""
+  port: 6379
+  # -- Database index
+  database: 0
+  # -- Full connection string (`REDIS_URL`, `redis://` or `rediss://`) for an external Redis with authentication. Prefer secretKeyRef.
+  url:
+    value: ""
+    secretKeyRef:
+      name: ""
+      key: ""
+
+  # Sub-chart settings (groundhog2k/redis), passed through as is.
+  image:
+    registry: docker.io
+    repository: redis
+    tag: 7-alpine
+    pullPolicy: IfNotPresent
+  # -- redis.conf of the bundled instance. `noeviction` is REQUIRED: jobs are lost under eviction.
+  redisConfig: |
+    appendonly yes
+    maxmemory 256mb
+    maxmemory-policy noeviction
+  storage:
+    requestedSize: 8Gi
+    className: ""
+    accessModes:
+      - ReadWriteOnce
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      memory: 512Mi
+  nodeSelector: {}
+  tolerations: []
+  affinity: {}
+
+# ── Object storage (S3 / MinIO) ───────────────────────────────────────────────────────────────
+# Bundled via minio/minio (standalone). The api SIGNS presigned URLs (no network call), the browser
+# uploads directly, the worker reads/writes objects. For production point at an S3-compatible store
+# (Scaleway Object Storage in the beta profile) with `deploy: false`.
+s3:
+  # -- Deploy MinIO via the bundled sub-chart. Disable to use an external S3-compatible storage.
+  deploy: true
+  # -- Endpoint seen by the services. Auto-set to the MinIO Service when `deploy` is true.
+  endpoint: ""
+  # -- Endpoint seen by the BROWSER, signed into the URLs handed to the Studio and the widget. With the
+  # bundled MinIO it must be a public route to it (`s3.ingress` below): a SigV4 signature covers the Host.
+  browserEndpoint: ""
+  # -- Bucket of attachments, artefacts and offloaded tool outputs. Created by the sub-chart when `deploy` is true (`s3.buckets`).
+  bucket: rikoo
+  # -- Region, part of the SigV4 signature. MinIO ignores it; a provider refuses a wrong one.
+  region: us-east-1
+  # -- Path-style addressing: true for MinIO, false for a provider serving the bucket as a sub-domain.
+  forcePathStyle: true
+  # -- Access key for an external store (`S3_ACCESS_KEY_ID`). Ignored when `deploy` is true.
+  accessKeyId:
+    value: ""
+    secretKeyRef:
+      name: ""
+      key: ""
+  # -- Secret key for an external store (`S3_SECRET_ACCESS_KEY`). Ignored when `deploy` is true.
+  secretAccessKey:
+    value: ""
+    secretKeyRef:
+      name: ""
+      key: ""
+  # Credentials of the bundled MinIO. The chart writes them in the chart-managed Secret named by
+  # `s3.existingSecret` (keys `rootUser` / `rootPassword`, the sub-chart's contract) and hands the
+  # same pair to api and worker.
+  auth:
+    rootUser: rikoo
+    # -- Leave empty to have the chart generate one
+    rootPassword: ""
+  # -- Name of the chart-managed MinIO Secret (sub-chart value, static). Point it at your own Secret (keys `rootUser` / `rootPassword`) to bring the credentials yourself.
+  existingSecret: rikoo-s3-auth
+  # -- Validity of a signed upload URL in seconds (`S3_UPLOAD_URL_TTL_SEC`); empty = product default
+  uploadUrlTtlSec: ""
+
+  # Sub-chart settings (minio/minio), passed through as is.
+  image:
+    # MinIO publishes its RELEASE tags on quay.io; the Docker Hub `minio/minio` repository does
+    # not serve them (pull access denied): a cluster must pull from quay.
+    repository: quay.io/minio/minio
+    tag: RELEASE.2024-12-18T13-15-44Z
+    pullPolicy: IfNotPresent
+  mcImage:
+    repository: quay.io/minio/mc
+    tag: RELEASE.2024-11-21T17-21-54Z
+    pullPolicy: IfNotPresent
+  mode: standalone
+  replicas: 1
+  drivesPerNode: 1
+  pools: 1
+  # -- Buckets created by the sub-chart at install. Must contain `s3.bucket` (validated at render time).
+  buckets:
+    - name: rikoo
+      policy: none
+      purge: false
+  persistence:
+    enabled: true
+    size: 50Gi
+    storageClass: ""
+    accessMode: ReadWriteOnce
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      memory: 1Gi
+  service:
+    type: ClusterIP
+    port: "9000"
+  consoleService:
+    type: ClusterIP
+    port: "9001"
+  # -- Public route to the bundled MinIO for the browser (then set `s3.browserEndpoint`)
+  ingress:
+    enabled: false
+    ingressClassName: ~
+    annotations: {}
+    path: /
+    hosts: []
+    tls: []
+  # The sub-chart's own default users/policies: none (the root pair is the only identity Rikoo uses).
+  users: []
+  policies: []
+  svcaccts: []
+
+# -- Extra Kubernetes manifests rendered as is (e.g. an ExternalSecret, a Certificate)
+extraManifests: []

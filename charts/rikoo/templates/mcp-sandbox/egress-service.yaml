@@ -1,0 +1,21 @@
+{{- $s := .Values.rikoo.sandbox -}}
+{{- if $s.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "rikoo.sandbox.egressServiceName" . }}
+  namespace: {{ $.Release.Namespace }}
+  labels:
+    {{- include "rikoo.labels" . | nindent 4 }}
+    app.kubernetes.io/component: mcp-egress
+spec:
+  type: ClusterIP
+  ports:
+    - port: {{ $s.egress.port }}
+      targetPort: proxy
+      protocol: TCP
+      name: proxy
+  selector:
+    {{- include "rikoo.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: mcp-egress
+{{- end }}

@@ -1,0 +1,138 @@
+{{- /*
+Render-time validations: refuse what the product would refuse at boot (or worse, accept silently).
+*/ -}}
+
+# Registry and tag: explicit, never guessed.
+{{- $_ := include "rikoo.image.tag" . -}}
+{{- if not .Values.rikoo.image.registry -}}
+    {{- fail "rikoo.image.registry is required: the registry namespace the Rikoo images are pulled from, for example registry.example.com/rikoo" -}}
+{{- end -}}
+
+# Logging and locale: the values the product accepts.
+{{- if not (has .Values.rikoo.logging.level (list "trace" "debug" "info" "warn" "error" "fatal")) -}}
+    {{- fail "rikoo.logging.level must be one of: trace, debug, info, warn, error, fatal" -}}
+{{- end -}}
+{{- if not (has .Values.rikoo.logging.format (list "json" "pretty")) -}}
+    {{- fail "rikoo.logging.format must be one of: json, pretty" -}}
+{{- end -}}
+{{- if not (has .Values.rikoo.locale (list "en" "fr")) -}}
+    {{- fail "rikoo.locale must be one of: en, fr" -}}
+{{- end -}}
+{{- if and .Values.rikoo.signupMode (not (has .Values.rikoo.signupMode (list "invite" "open" "closed"))) -}}
+    {{- fail "rikoo.signupMode must be one of: invite, open, closed (or empty)" -}}
+{{- end -}}
+{{- if not (has .Values.rikoo.nodeEnv (list "development" "test" "production")) -}}
+    {{- fail "rikoo.nodeEnv must be one of: development, test, production" -}}
+{{- end -}}
+{{- if not (has .Values.rikoo.otel.api.metricsExporter (list "none" "prometheus")) -}}
+    {{- fail "rikoo.otel.api.metricsExporter must be one of: none, prometheus" -}}
+{{- end -}}
+
+# Canonical origin: scheme + host, no path (the anti-CSRF check compares origins).
+{{- if not (regexMatch "^https?://[^/?#]+$" .Values.rikoo.publicUrl) -}}
+    {{- fail (printf "rikoo.publicUrl must be an origin (scheme://host[:port], no path), got %q" .Values.rikoo.publicUrl) -}}
+{{- end -}}
+
+# Feature flags: known keys only, so a typo does not silently keep a feature on.
+{{- range $key, $val := .Values.rikoo.features -}}
+{{- if not (has $key (list "usage" "feedback" "audit" "variables" "hitl" "gates" "connectors" "sso" "otlpFanout" "alerting")) -}}
+    {{- fail (printf "rikoo.features: unknown feature flag %q" $key) -}}
+{{- end -}}
+{{- end -}}
+
+# Sealing pair: the api needs the public key, the worker the private one.
+{{- $sealing := .Values.rikoo.secrets.sealing -}}
+{{- if not $sealing.existingSecret -}}
+{{- if not (include "rikoo.isProvided" $sealing.publicKey) -}}
+    {{- fail "rikoo.secrets.sealing: the vault PUBLIC key is required for the api. Generate an RSA 3072 pair with OpenSSL, then set sealing.existingSecret or sealing.publicKey (value or secretKeyRef)." -}}
+{{- end -}}
+{{- if not (include "rikoo.isProvided" $sealing.privateKey) -}}
+    {{- fail "rikoo.secrets.sealing: the vault PRIVATE key is required for the worker. Set sealing.existingSecret or sealing.privateKey (value or secretKeyRef)." -}}
+{{- end -}}
+{{- if and $sealing.publicKey.value (not (hasPrefix "-----BEGIN PUBLIC KEY-----" $sealing.publicKey.value)) -}}
+    {{- fail "rikoo.secrets.sealing.publicKey.value must be a PEM public key (SPKI, `-----BEGIN PUBLIC KEY-----`)" -}}
+{{- end -}}
+{{- if and $sealing.privateKey.value (not (hasPrefix "-----BEGIN PRIVATE KEY-----" $sealing.privateKey.value)) -}}
+    {{- fail "rikoo.secrets.sealing.privateKey.value must be a PEM private key (PKCS#8, `-----BEGIN PRIVATE KEY-----`)" -}}
+{{- end -}}
+{{- end -}}
+
+# Widget signing key: below 32 chars the value is decorative (product manifest).
+{{- with .Values.rikoo.secrets.widgetSigningKey.value -}}
+{{- if lt (len .) 32 -}}
+    {{- fail "rikoo.secrets.widgetSigningKey.value must be at least 32 characters" -}}
+{{- end -}}
+{{- end -}}
+{{- with .Values.rikoo.secrets.totpKey.value -}}
+{{- if lt (len .) 32 -}}
+    {{- fail "rikoo.secrets.totpKey.value must be at least 32 characters" -}}
+{{- end -}}
+{{- end -}}
+
+# PostgreSQL.
+{{- if and (not .Values.postgresql.deploy) (not .Values.postgresql.host) (not (include "rikoo.isProvided" .Values.postgresql.url)) -}}
+    {{- fail "PostgreSQL: set postgresql.host (with auth) or postgresql.url when postgresql.deploy is false." -}}
+{{- end -}}
+{{- if and (not .Values.postgresql.deploy) .Values.postgresql.host (not .Values.postgresql.auth.existingSecret) (not .Values.postgresql.auth.password) -}}
+    {{- fail "PostgreSQL: postgresql.auth.password or postgresql.auth.existingSecret is required with postgresql.host." -}}
+{{- end -}}
+{{- if and .Values.postgresql.deploy .Values.postgresql.auth.existingSecret (ne .Values.postgresql.auth.existingSecret (include "rikoo.postgresql.authSecretName" .)) -}}
+    {{- fail "PostgreSQL: with postgresql.deploy=true, postgresql.auth.existingSecret must be the Secret the sub-chart mounts (postgresql.settings.existingSecret), holding POSTGRES_USER / POSTGRES_PASSWORD / POSTGRES_DB. Point both at the same Secret (see examples/minimal-installation)." -}}
+{{- end -}}
+{{- if and .Values.postgresql.deploy .Values.postgresql.auth.existingSecret (ne .Values.postgresql.auth.existingSecretPasswordKey "POSTGRES_PASSWORD") -}}
+    {{- fail "PostgreSQL: with postgresql.deploy=true and an existing Secret, postgresql.auth.existingSecretPasswordKey must be POSTGRES_PASSWORD (the key the sub-chart reads)." -}}
+{{- end -}}
+{{- if and .Values.postgresql.deploy (include "rikoo.isProvided" .Values.postgresql.url) -}}
+    {{- fail "PostgreSQL: postgresql.url is for an external database; unset it or set postgresql.deploy=false." -}}
+{{- end -}}
+
+# Redis.
+{{- if and (not .Values.redis.deploy) (not .Values.redis.host) (not (include "rikoo.isProvided" .Values.redis.url)) -}}
+    {{- fail "Redis: set redis.host or redis.url when redis.deploy is false." -}}
+{{- end -}}
+{{- if and .Values.redis.deploy (not (contains "maxmemory-policy noeviction" (default "" .Values.redis.redisConfig))) -}}
+    {{- fail "Redis: the bundled instance must run with `maxmemory-policy noeviction` (queued jobs are lost under eviction). Keep it in redis.redisConfig." -}}
+{{- end -}}
+
+# Object storage.
+{{- if and (not .Values.s3.deploy) (not .Values.s3.endpoint) -}}
+    {{- fail "S3: set s3.endpoint when s3.deploy is false." -}}
+{{- end -}}
+{{- if and (not .Values.s3.deploy) (not (include "rikoo.isProvided" .Values.s3.accessKeyId)) -}}
+    {{- fail "S3: set s3.accessKeyId (value or secretKeyRef) when s3.deploy is false." -}}
+{{- end -}}
+{{- if and (not .Values.s3.deploy) (not (include "rikoo.isProvided" .Values.s3.secretAccessKey)) -}}
+    {{- fail "S3: set s3.secretAccessKey (value or secretKeyRef) when s3.deploy is false." -}}
+{{- end -}}
+{{- if and .Values.s3.deploy (not .Values.s3.forcePathStyle) -}}
+    {{- fail "S3: the bundled MinIO requires path-style addressing (s3.forcePathStyle: true)." -}}
+{{- end -}}
+{{- if .Values.s3.deploy -}}
+{{- $names := list -}}
+{{- range .Values.s3.buckets -}}{{- $names = append $names .name -}}{{- end -}}
+{{- if not (has .Values.s3.bucket $names) -}}
+    {{- fail (printf "S3: s3.bucket %q is not in s3.buckets (%v): the bundled MinIO only creates the buckets listed there, uploads would fail with NoSuchBucket." .Values.s3.bucket $names) -}}
+{{- end -}}
+{{- end -}}
+
+# Scaling: one controller per deployment.
+{{- if and .Values.rikoo.api.keda.enabled .Values.rikoo.api.hpa.enabled -}}
+    {{- fail "rikoo.api: keda and hpa cannot both be enabled" -}}
+{{- end -}}
+{{- if and .Values.rikoo.worker.keda.enabled .Values.rikoo.worker.hpa.enabled -}}
+    {{- fail "rikoo.worker: keda and hpa cannot both be enabled" -}}
+{{- end -}}
+
+# Pod Disruption Budgets: one bound, not two.
+{{- range $name, $pdb := dict "api" .Values.rikoo.api.pdb "worker" .Values.rikoo.worker.pdb "sidecarParsing" .Values.rikoo.sidecarParsing.pdb -}}
+{{- if and $pdb.create $pdb.minAvailable $pdb.maxUnavailable -}}
+    {{- fail (printf "rikoo.%s.pdb: minAvailable and maxUnavailable cannot both be set" $name) -}}
+{{- end -}}
+{{- end -}}
+
+# Worker replicas share one PostgreSQL pool budget: say it when it grows.
+{{- $workerReplicas := coalesce .Values.rikoo.worker.replicas .Values.rikoo.replicas -}}
+{{- if and .Values.rikoo.worker.hpa.enabled -}}{{- $workerReplicas = .Values.rikoo.worker.hpa.maxReplicas -}}{{- end -}}
+{{- if and .Values.postgresql.deploy (gt (mul (int $workerReplicas) (int .Values.rikoo.worker.dbPool)) 90) -}}
+    {{- fail (printf "PostgreSQL: %d worker replicas x %d connections (rikoo.worker.dbPool) exceed the 100-connection default of the bundled instance. Lower dbPool, or raise max_connections through postgresql.customConfig." (int $workerReplicas) (int .Values.rikoo.worker.dbPool)) -}}
+{{- end -}}

@@ -1,0 +1,27 @@
+# Bring your own PostgreSQL, managed or not. Overlay on top of minimal-installation/values.yaml.
+# pgvector must be available on the instance: the first migration runs
+# `CREATE EXTENSION IF NOT EXISTS vector`, so the role needs the right to create extensions, which
+# usually means owning the database on a managed offer.
+postgresql:
+  deploy: false
+  # Either a complete owner URL from a Secret, which keeps the password out of the values...
+  url:
+    secretKeyRef:
+      name: rikoo-db
+      key: url            # postgresql://rikoo:...@db.internal:5432/rikoo?schema=public&sslmode=require
+  # ...or host plus auth, with the chart assembling the URL:
+  # host: db.internal
+  # port: 5432
+  # connectionArgs: schema=public&sslmode=require
+  # auth:
+  #   username: rikoo
+  #   database: rikoo
+  #   existingSecret: rikoo-db
+  #   existingSecretPasswordKey: password
+
+  # Optional: a NON-owner role, so row-level security policies actually filter, since PostgreSQL
+  # exempts the owner from them.
+  # appUrl:
+  #   secretKeyRef:
+  #     name: rikoo-db
+  #     key: app-url

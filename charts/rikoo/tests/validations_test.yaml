@@ -1,0 +1,206 @@
+suite: render-time validations
+templates:
+  - validations.yaml
+tests:
+  - it: accepts the lint values
+    values:
+      - ../values.lint.yaml
+    asserts:
+      - notFailedTemplate: {}
+
+  - it: refuses to render without an image tag
+    asserts:
+      - failedTemplate:
+          errorPattern: rikoo.image.tag is required
+
+  - it: refuses to render without an image registry
+    set:
+      rikoo.image.tag: v1.0.0
+    asserts:
+      - failedTemplate:
+          errorPattern: rikoo.image.registry is required
+
+  - it: refuses a deployment without the sealing public key
+    set:
+      rikoo.image.registry: registry.example.com/rikoo
+      rikoo.image.tag: v1.0.0
+      rikoo.secrets.sealing.privateKey.value: "-----BEGIN PRIVATE KEY-----\nx\n-----END PRIVATE KEY-----"
+    asserts:
+      - failedTemplate:
+          errorPattern: vault PUBLIC key is required
+
+  - it: refuses a deployment without the sealing private key
+    set:
+      rikoo.image.registry: registry.example.com/rikoo
+      rikoo.image.tag: v1.0.0
+      rikoo.secrets.sealing.publicKey.value: "-----BEGIN PUBLIC KEY-----\nx\n-----END PUBLIC KEY-----"
+    asserts:
+      - failedTemplate:
+          errorPattern: vault PRIVATE key is required
+
+  - it: refuses a public key that is not PEM
+    values:
+      - ../values.lint.yaml
+    set:
+      rikoo.secrets.sealing.publicKey.value: not-a-pem
+    asserts:
+      - failedTemplate:
+          errorPattern: PEM public key
+
+  - it: refuses a short widget signing key
+    values:
+      - ../values.lint.yaml
+    set:
+      rikoo.secrets.widgetSigningKey.value: too-short
+    asserts:
+      - failedTemplate:
+          errorPattern: at least 32 characters
+
+  - it: refuses an unknown feature flag
+    values:
+      - ../values.lint.yaml
+    set:
+      rikoo.features.telemetry: true
+    asserts:
+      - failedTemplate:
+          errorPattern: unknown feature flag
+
+  - it: refuses a public URL with a path
+    values:
+      - ../values.lint.yaml
+    set:
+      rikoo.publicUrl: https://rikoo.example.com/studio
+    asserts:
+      - failedTemplate:
+          errorPattern: must be an origin
+
+  - it: refuses an unknown log level or locale
+    values:
+      - ../values.lint.yaml
+    set:
+      rikoo.logging.level: verbose
+    asserts:
+      - failedTemplate:
+          errorPattern: rikoo.logging.level
+
+  - it: refuses an external PostgreSQL without host or url
+    values:
+      - ../values.lint.yaml
+    set:
+      postgresql.deploy: false
+    asserts:
+      - failedTemplate:
+          errorPattern: set postgresql.host
+
+  - it: refuses an external PostgreSQL host without a password
+    values:
+      - ../values.lint.yaml
+    set:
+      postgresql.deploy: false
+      postgresql.host: db.example.internal
+    asserts:
+      - failedTemplate:
+          errorPattern: postgresql.auth.password or postgresql.auth.existingSecret
+
+  - it: refuses postgresql.url together with the bundled instance
+    values:
+      - ../values.lint.yaml
+    set:
+      postgresql.url.value: postgresql://x:y@z/db
+    asserts:
+      - failedTemplate:
+          errorPattern: postgresql.url is for an external database
+
+  - it: refuses the bundled Redis without noeviction
+    values:
+      - ../values.lint.yaml
+    set:
+      redis.redisConfig: "appendonly yes"
+    asserts:
+      - failedTemplate:
+          errorPattern: noeviction
+
+  - it: refuses an external Redis without host or url
+    values:
+      - ../values.lint.yaml
+    set:
+      redis.deploy: false
+    asserts:
+      - failedTemplate:
+          errorPattern: set redis.host or redis.url
+
+  - it: refuses an external store without an endpoint
+    values:
+      - ../values.lint.yaml
+    set:
+      s3.deploy: false
+    asserts:
+      - failedTemplate:
+          errorPattern: set s3.endpoint
+
+  - it: refuses an external store without credentials
+    values:
+      - ../values.lint.yaml
+    set:
+      s3.deploy: false
+      s3.endpoint: https://s3.example.com
+    asserts:
+      - failedTemplate:
+          errorPattern: s3.accessKeyId
+
+  - it: refuses a bucket the bundled MinIO would not create
+    values:
+      - ../values.lint.yaml
+    set:
+      s3.bucket: other
+    asserts:
+      - failedTemplate:
+          errorPattern: NoSuchBucket
+
+  - it: refuses the bundled MinIO without path-style addressing
+    values:
+      - ../values.lint.yaml
+    set:
+      s3.forcePathStyle: false
+    asserts:
+      - failedTemplate:
+          errorPattern: path-style
+
+  - it: refuses HPA and KEDA together
+    values:
+      - ../values.lint.yaml
+    set:
+      rikoo.worker.hpa.enabled: true
+      rikoo.worker.keda.enabled: true
+    asserts:
+      - failedTemplate:
+          errorPattern: keda and hpa cannot both be enabled
+
+  - it: refuses a PDB with both bounds
+    values:
+      - ../values.lint.yaml
+    set:
+      rikoo.api.pdb.minAvailable: 1
+      rikoo.api.pdb.maxUnavailable: 1
+    asserts:
+      - failedTemplate:
+          errorPattern: minAvailable and maxUnavailable cannot both be set
+
+  - it: refuses a worker fleet that would exhaust the bundled PostgreSQL
+    values:
+      - ../values.lint.yaml
+    set:
+      rikoo.worker.replicas: 4
+    asserts:
+      - failedTemplate:
+          errorPattern: exceed the 100-connection default
+
+  - it: accepts the same fleet against a managed PostgreSQL
+    values:
+      - ../values.lint.yaml
+    set:
+      rikoo.worker.replicas: 4
+      postgresql.deploy: false
+      postgresql.url.value: postgresql://x:y@db.example.internal:5432/rikoo
+    asserts:
+      - notFailedTemplate: {}

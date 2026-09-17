@@ -1,0 +1,52 @@
+{{- /*
+Non-secret configuration shared by the api and the worker, consumed through `envFrom`. Every name
+is part of the product's documented environment contract. The deployments
+carry a checksum of this ConfigMap: changing a value here rolls the pods.
+*/ -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "rikoo.fullname" . }}-env
+  namespace: {{ $.Release.Namespace }}
+  labels:
+    {{- include "rikoo.labels" . | nindent 4 }}
+data:
+  PUBLIC_URL: {{ .Values.rikoo.publicUrl | quote }}
+  CORS_ORIGINS: {{ .Values.rikoo.corsOrigins | default .Values.rikoo.publicUrl | quote }}
+  TRUST_PROXY_HOPS: {{ .Values.rikoo.trustProxyHops | quote }}
+  LOG_LEVEL: {{ .Values.rikoo.logging.level | quote }}
+  LOG_FORMAT: {{ .Values.rikoo.logging.format | quote }}
+  LOG_SLOW_QUERY_MS: {{ .Values.rikoo.logging.slowQueryMs | quote }}
+  WEB_LOCALE: {{ .Values.rikoo.locale | quote }}
+  {{- with .Values.rikoo.signupMode }}
+  SIGNUP_MODE: {{ . | quote }}
+  {{- end }}
+  {{- if not (kindIs "invalid" .Values.rikoo.sessionSecureCookies) }}
+  {{- with (toString .Values.rikoo.sessionSecureCookies) }}
+  SESSION_SECURE_COOKIES: {{ . | quote }}
+  {{- end }}
+  {{- end }}
+  {{- with .Values.rikoo.license.upgradeUrl }}
+  RIKOO_UPGRADE_URL: {{ . | quote }}
+  {{- end }}
+  {{- with .Values.rikoo.egress.allowCidrs }}
+  RIKOO_EGRESS_ALLOW_CIDRS: {{ . | quote }}
+  {{- end }}
+  {{- with .Values.rikoo.egress.devAllowlist }}
+  RIKOO_EGRESS_DEV_ALLOWLIST: {{ . | quote }}
+  {{- end }}
+  {{- with .Values.rikoo.attachments.maxBytes }}
+  ATTACHMENT_MAX_BYTES: {{ . | quote }}
+  {{- end }}
+  {{- with .Values.rikoo.attachments.maxAudioBytes }}
+  ATTACHMENT_MAX_AUDIO_BYTES: {{ . | quote }}
+  {{- end }}
+  {{- with .Values.rikoo.attachments.maxPerTurn }}
+  ATTACHMENT_MAX_PER_TURN: {{ . | quote }}
+  {{- end }}
+  {{- with .Values.rikoo.attachments.maxTurnBytes }}
+  ATTACHMENT_MAX_TURN_BYTES: {{ . | quote }}
+  {{- end }}
+  {{- with .Values.rikoo.attachments.retentionDays }}
+  ATTACHMENT_RETENTION_DAYS: {{ . | quote }}
+  {{- end }}

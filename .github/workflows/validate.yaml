@@ -1,0 +1,46 @@
+name: Validate Helm Chart
+on:
+  pull_request:
+    paths:
+      - "charts/**"
+      - "examples/**"
+      - "Makefile"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Lint and render
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.19.0
+
+      - name: Update dependencies
+        run: helm dependency update charts/rikoo/
+
+      - name: Run helm lint
+        run: helm lint charts/rikoo/ -f charts/rikoo/values.lint.yaml
+
+      - name: Render every example
+        run: make examples
+
+      - name: Validate rendered manifests against the Kubernetes schemas
+        uses: docker://ghcr.io/yannh/kubeconform:v0.6.7
+        with:
+          args: >-
+            -strict -ignore-missing-schemas -summary
+            -kubernetes-version 1.30.0
+            .render/default.yaml .render/minimal.yaml .render/minimal-ingress.yaml .render/external.yaml .render/kapsule.yaml

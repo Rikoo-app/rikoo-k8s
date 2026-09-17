@@ -1,0 +1,37 @@
+Rikoo {{ include "rikoo.image.tag" . }} — release {{ .Release.Name }} in namespace {{ .Release.Namespace }}
+
+Studio and API : {{ .Values.rikoo.publicUrl }}
+{{- if .Values.rikoo.ingress.enabled }}
+Ingress        : {{ range .Values.rikoo.ingress.hosts }}{{ .host }} {{ end }}
+{{- else }}
+No ingress: reach the api with
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "rikoo.api.serviceName" . }} {{ .Values.rikoo.api.service.port }}:http
+{{- end }}
+
+Health         : curl -fsS {{ .Values.rikoo.publicUrl }}/api/v1/health
+Probes         : /healthz (liveness, no dependency) · /readyz (readiness, PostgreSQL + Redis)
+Worker metrics : svc/{{ include "rikoo.worker.serviceName" . }}:{{ .Values.rikoo.worker.healthPort }}/metrics (internal)
+
+Stores
+  PostgreSQL   : {{ if .Values.postgresql.deploy }}bundled ({{ include "rikoo.postgresql.hostname" . }}, pgvector){{ else }}external{{ end }}
+  Redis        : {{ if .Values.redis.deploy }}bundled ({{ include "rikoo.redis.hostname" . }}){{ else }}external{{ end }}
+  Object store : {{ if .Values.s3.deploy }}bundled MinIO ({{ include "rikoo.s3.endpoint" . }}){{ else }}external ({{ .Values.s3.endpoint }}){{ end }}, bucket {{ .Values.s3.bucket }}
+{{- if and .Values.s3.deploy (not .Values.s3.browserEndpoint) }}
+
+  ⚠ s3.browserEndpoint is empty: the Studio and the widget cannot upload attachments to the
+    bundled MinIO, which has no public route. Expose it (s3.ingress) and set s3.browserEndpoint
+    to that origin — a SigV4 signature covers the Host.
+{{- end }}
+
+Side services
+  Parsing      : {{ if .Values.rikoo.sidecarParsing.enabled }}enabled{{ else }}disabled (local parsers){{ end }}
+  MCP sandbox  : {{ if .Values.rikoo.sandbox.enabled }}enabled{{ if .Values.rikoo.networkPolicy.enabled }}, NetworkPolicies on{{ else }}, ⚠ NetworkPolicies OFF: the shell has a route out{{ end }}{{ else }}disabled{{ end }}
+
+Secrets
+  Generated on first install and kept through uninstall: {{ include "rikoo.appSecretName" . }}
+  {{- if .Values.postgresql.deploy }}, {{ include "rikoo.postgresql.authSecretName" . }}{{ end }}
+  {{- if .Values.s3.deploy }}, {{ include "rikoo.s3.authSecretName" . }}{{ end }}.
+  Under helm-template GitOps (ArgoCD), pin every key: `lookup` cannot see the cluster there.
+  Sealing pair : {{ include "rikoo.sealingSecretName" . }} (public key → api, private key → worker only)
+
+Migrations     : {{ if .Values.rikoo.migrations.job.enabled }}Job {{ include "rikoo.fullname" . }}-migrations (post-install, pre-upgrade){{ else }}api entrypoint only{{ end }}

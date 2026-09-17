@@ -1,0 +1,44 @@
+# Overlay on top of values.yaml: expose the Studio through ingress-nginx with cert-manager TLS.
+#   helm upgrade --install rikoo ../../charts/rikoo -n rikoo -f values.yaml -f with-ingress.yaml
+rikoo:
+  publicUrl: https://rikoo.example.com
+  # One proxy in front, the ingress controller: the client address is the client's, not the proxy's.
+  trustProxyHops: 1
+  sessionSecureCookies: "true"
+  ingress:
+    enabled: true
+    className: nginx
+    annotations:
+      cert-manager.io/cluster-issuer: letsencrypt
+      # Attachments: the proxy limit must be greater than or equal to ATTACHMENT_MAX_BYTES, and
+      # must never be the only limit. nginx counts in MiB, so 12m sits above a 10 MB product cap.
+      nginx.ingress.kubernetes.io/proxy-body-size: 12m
+      # Server-sent events: forward every chunk, keep long conversations open.
+      nginx.ingress.kubernetes.io/proxy-buffering: "off"
+      nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+      nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+    hosts:
+      - host: rikoo.example.com
+        paths:
+          - path: /
+            pathType: Prefix
+    tls:
+      enabled: true
+      secretName: rikoo-tls
+
+s3:
+  # The browser uploads straight to object storage: with the bundled MinIO it needs a public route,
+  # and the signed URLs must carry THAT host, since the signature covers it.
+  browserEndpoint: https://s3.rikoo.example.com
+  ingress:
+    enabled: true
+    ingressClassName: nginx
+    annotations:
+      cert-manager.io/cluster-issuer: letsencrypt
+      nginx.ingress.kubernetes.io/proxy-body-size: 64m
+    hosts:
+      - s3.rikoo.example.com
+    tls:
+      - secretName: rikoo-s3-tls
+        hosts:
+          - s3.rikoo.example.com

@@ -1,0 +1,53 @@
+{{- if .Values.rikoo.ingress.enabled -}}
+{{- /*
+One ingress, one backend: the api serves the Studio, the public API, the widget bundle
+(`/widget/widget.js`, contractual URL) and the SSE streams. What the reverse proxy of the beta
+(Caddyfile) does — TLS, no buffering of SSE — is the ingress controller's job here: see the
+annotations documented in values.yaml.
+*/ -}}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "rikoo.fullname" . }}
+  namespace: {{ $.Release.Namespace }}
+  labels:
+    {{- include "rikoo.labels" . | nindent 4 }}
+    {{- with .Values.rikoo.ingress.additionalLabels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+  {{- with .Values.rikoo.ingress.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- with .Values.rikoo.ingress.className }}
+  ingressClassName: {{ . }}
+  {{- end }}
+  {{- if .Values.rikoo.ingress.tls.enabled }}
+  tls:
+    - hosts:
+        {{- range .Values.rikoo.ingress.hosts }}
+        - {{ .host | quote }}
+        {{- end }}
+      secretName: {{ required "rikoo.ingress.tls.secretName is required when tls is enabled" .Values.rikoo.ingress.tls.secretName }}
+  {{- end }}
+  rules:
+    {{- range .Values.rikoo.ingress.hosts }}
+    - host: {{ .host | quote }}
+      http:
+        paths:
+          {{- range .paths }}
+          - path: {{ .path }}
+            pathType: {{ .pathType | default "Prefix" }}
+            backend:
+              {{- if .backend }}
+              {{- toYaml .backend | nindent 14 }}
+              {{- else }}
+              service:
+                name: {{ include "rikoo.api.serviceName" $ }}
+                port:
+                  name: http
+              {{- end }}
+          {{- end }}
+    {{- end }}
+{{- end }}

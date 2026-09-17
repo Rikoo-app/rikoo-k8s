@@ -1,0 +1,13 @@
+# Bring your own Redis, managed or operator-run. Overlay on top of minimal-installation/values.yaml.
+# Rikoo needs `maxmemory-policy noeviction` on the target: queued jobs are lost under eviction.
+redis:
+  deploy: false
+  # Either a complete URL from a Secret, carrying the password (`rediss://` for TLS)...
+  url:
+    secretKeyRef:
+      name: rikoo-redis
+      key: url            # rediss://default:...@redis.internal:6379/0
+  # ...or a host without authentication:
+  # host: redis.internal
+  # port: 6379
+  # database: 0

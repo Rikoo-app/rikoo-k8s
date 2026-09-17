@@ -1,0 +1,20 @@
+# Bring your own object storage: any S3-compatible service. Overlay on top of
+# minimal-installation/values.yaml.
+s3:
+  deploy: false
+  endpoint: https://s3.example.com
+  # What the browser sees, signed into the presigned URLs. Same as `endpoint` when the store is
+  # publicly reachable; a CDN or proxy origin otherwise.
+  browserEndpoint: https://s3.example.com
+  region: eu-west-1
+  bucket: rikoo
+  # Providers usually serve the bucket as a sub-domain; keep this true only for MinIO-like stores.
+  forcePathStyle: false
+  accessKeyId:
+    secretKeyRef:
+      name: rikoo-s3
+      key: access-key
+  secretAccessKey:
+    secretKeyRef:
+      name: rikoo-s3
+      key: secret-key

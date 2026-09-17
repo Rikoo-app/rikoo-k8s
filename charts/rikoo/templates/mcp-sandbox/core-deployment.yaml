@@ -1,0 +1,137 @@
+{{- $s := .Values.rikoo.sandbox -}}
+{{- $c := $s.core -}}
+{{- if $s.enabled }}
+{{- /*
+Sandbox core: Files + Shell + Browser broker, one workspace per run.
+
+The container runs as uid 0 ON PURPOSE: giving each run a distinct unprivileged identity
+requires being able to change identity. It keeps exactly four capabilities (SETUID, SETGID, CHOWN,
+DAC_OVERRIDE) on a read-only root filesystem, without privilege escalation — the same shape as
+Everything else about its isolation is the NetworkPolicy: no route out except to
+the Playwright pod. Pod Security Standard: baseline (not restricted) for this pod only.
+*/ -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "rikoo.sandbox.serviceName" . }}
+  namespace: {{ $.Release.Namespace }}
+  labels:
+    {{- include "rikoo.labels" . | nindent 4 }}
+    app.kubernetes.io/component: mcp-sandbox
+  {{- with .Values.rikoo.deployment.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  # One instance: the workspaces of in-flight runs live on its volume.
+  replicas: 1
+  revisionHistoryLimit: {{ .Values.rikoo.revisionHistoryLimit }}
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "rikoo.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: mcp-sandbox
+  template:
+    metadata:
+      {{- $podAnnotations := merge ($c.pod.annotations | default dict) (.Values.rikoo.pod.annotations | default dict) }}
+      {{- with $podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "rikoo.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: mcp-sandbox
+        rikoo.io/sandbox: "true"
+        {{- $podLabels := merge ($c.pod.labels | default dict) (.Values.rikoo.pod.labels | default dict) }}
+        {{- with $podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- include "rikoo.pullSecrets" (dict "root" . "component" $s) | nindent 6 }}
+      serviceAccountName: {{ include "rikoo.serviceAccountName" . }}
+      automountServiceAccountToken: false
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        - name: workspaces
+          {{- if $c.workspace.persistence.enabled }}
+          persistentVolumeClaim:
+            claimName: {{ include "rikoo.sandbox.serviceName" . }}-workspaces
+          {{- else }}
+          emptyDir:
+            sizeLimit: {{ $c.workspace.sizeLimit }}
+          {{- end }}
+      containers:
+        - name: mcp-sandbox
+          securityContext:
+            runAsUser: 0
+            runAsGroup: 0
+            runAsNonRoot: false
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+              add:
+                - SETUID
+                - SETGID
+                - CHOWN
+                - DAC_OVERRIDE
+          image: {{ include "rikoo.image" (dict "root" . "component" $s) | quote }}
+          imagePullPolicy: {{ $s.image.pullPolicy | default .Values.rikoo.image.pullPolicy }}
+          env:
+            - name: SANDBOX_ROLE
+              value: core
+            - name: SANDBOX_ROOT
+              value: /workspaces
+            - name: SANDBOX_PORT
+              value: {{ $c.port | quote }}
+            - name: MCP_SANDBOX_TOKEN_SECRET
+              {{- include "rikoo.getAppSecretValue" (dict "root" . "key" "rikoo.secrets.sandboxTokenSecret" "value" .Values.rikoo.secrets.sandboxTokenSecret "secretKey" "sandbox-token-secret") | nindent 14 }}
+            # The host:port here is the exact authority Playwright accepts (`--allowed-hosts`).
+            - name: SANDBOX_PLAYWRIGHT_URL
+              value: {{ printf "http://%s:%v/mcp" (include "rikoo.sandbox.playwrightServiceName" .) $s.playwright.port | quote }}
+            - name: SANDBOX_SHELL_TIMEOUT_MS
+              value: {{ $c.shellTimeoutMs | quote }}
+            - name: SANDBOX_SHELL_MAX_OUTPUT_BYTES
+              value: {{ $c.shellMaxOutputBytes | quote }}
+            - name: SANDBOX_IDLE_TTL_MS
+              value: {{ $c.idleTtlMs | quote }}
+            - name: LOG_LEVEL
+              value: {{ .Values.rikoo.logging.level | quote }}
+            {{- with $c.pod.additionalEnv }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          ports:
+            - name: http
+              containerPort: {{ $c.port }}
+              protocol: TCP
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: {{ $c.livenessProbe.initialDelaySeconds }}
+            periodSeconds: {{ $c.livenessProbe.periodSeconds }}
+            timeoutSeconds: {{ $c.livenessProbe.timeoutSeconds }}
+            failureThreshold: {{ $c.livenessProbe.failureThreshold }}
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            {{- toYaml $c.resources | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: workspaces
+              mountPath: /workspaces
+      {{- include "rikoo.scheduling" (dict "root" . "pod" $c.pod) | nindent 6 }}
+{{- end }}

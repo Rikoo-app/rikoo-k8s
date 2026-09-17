@@ -1,0 +1,107 @@
+{{- $s := .Values.rikoo.sandbox -}}
+{{- $c := $s.playwright -}}
+{{- if $s.enabled }}
+{{- /*
+Upstream browser (official image, taken as is). It leaves only through mcp-egress
+(`--proxy-server`), where the shared egress guard decides on the resolved address at every hop;
+the NetworkPolicy makes the proxy the only route. `--isolated`: an in-memory profile thrown away
+at the end of the session, which is what makes the browsing context private to a run.
+*/ -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "rikoo.sandbox.playwrightServiceName" . }}
+  namespace: {{ $.Release.Namespace }}
+  labels:
+    {{- include "rikoo.labels" . | nindent 4 }}
+    app.kubernetes.io/component: playwright-mcp
+  {{- with .Values.rikoo.deployment.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  replicas: 1
+  revisionHistoryLimit: {{ .Values.rikoo.revisionHistoryLimit }}
+  selector:
+    matchLabels:
+      {{- include "rikoo.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: playwright-mcp
+  template:
+    metadata:
+      {{- $podAnnotations := merge ($c.pod.annotations | default dict) (.Values.rikoo.pod.annotations | default dict) }}
+      {{- with $podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "rikoo.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: playwright-mcp
+        rikoo.io/sandbox: "true"
+        {{- $podLabels := merge ($c.pod.labels | default dict) (.Values.rikoo.pod.labels | default dict) }}
+        {{- with $podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- with $c.image.pullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "rikoo.serviceAccountName" . }}
+      automountServiceAccountToken: false
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
+      volumes:
+        - name: tmp
+          emptyDir: {}
+        # Chromium needs a shared memory segment larger than the 64 MB default of a container.
+        - name: dshm
+          emptyDir:
+            medium: Memory
+            sizeLimit: {{ $c.shmSizeLimit }}
+      containers:
+        - name: playwright-mcp
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+          image: "{{ $c.image.repository }}:{{ $c.image.tag }}"
+          imagePullPolicy: {{ $c.image.pullPolicy }}
+          args:
+            - --port={{ $c.port }}
+            - --host=0.0.0.0
+            # THE PORT IS MANDATORY: the upstream anti-DNS-rebinding guard compares the
+            # whole Host header, and node:http always sends the port. Must equal the authority of
+            # SANDBOX_PLAYWRIGHT_URL on the core role.
+            - --allowed-hosts={{ include "rikoo.sandbox.playwrightServiceName" . }}:{{ $c.port }}
+            - --headless
+            - --isolated
+            - --proxy-server=http://{{ include "rikoo.sandbox.egressServiceName" . }}:{{ $s.egress.port }}
+          ports:
+            - name: mcp
+              containerPort: {{ $c.port }}
+              protocol: TCP
+          livenessProbe:
+            tcpSocket:
+              port: mcp
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          readinessProbe:
+            tcpSocket:
+              port: mcp
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          resources:
+            {{- toYaml $c.resources | nindent 12 }}
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            - name: dshm
+              mountPath: /dev/shm
+      {{- include "rikoo.scheduling" (dict "root" . "pod" $c.pod) | nindent 6 }}
+{{- end }}

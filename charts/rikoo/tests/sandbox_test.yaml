@@ -1,0 +1,182 @@
+suite: embedded MCP sandbox and its isolation
+templates:
+  - mcp-sandbox/core-deployment.yaml
+  - mcp-sandbox/egress-deployment.yaml
+  - mcp-sandbox/playwright-deployment.yaml
+  - mcp-sandbox/networkpolicy.yaml
+  - mcp-sandbox/core-pvc.yaml
+  - worker/deployment.yaml
+tests:
+  - it: runs the core as root with exactly the four capabilities it needs
+    values:
+      - ../values.lint.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.runAsUser
+          value: 0
+        template: mcp-sandbox/core-deployment.yaml
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.capabilities.add
+          value: [SETUID, SETGID, CHOWN, DAC_OVERRIDE]
+        template: mcp-sandbox/core-deployment.yaml
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.readOnlyRootFilesystem
+          value: true
+        template: mcp-sandbox/core-deployment.yaml
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.allowPrivilegeEscalation
+          value: false
+        template: mcp-sandbox/core-deployment.yaml
+      - equal:
+          path: spec.strategy.type
+          value: Recreate
+        template: mcp-sandbox/core-deployment.yaml
+
+  - it: runs the egress proxy unprivileged with every capability dropped
+    values:
+      - ../values.lint.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.securityContext.runAsNonRoot
+          value: true
+        template: mcp-sandbox/egress-deployment.yaml
+      - equal:
+          path: spec.template.spec.containers[0].securityContext.capabilities.drop
+          value: [ALL]
+        template: mcp-sandbox/egress-deployment.yaml
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SANDBOX_ROLE
+            value: egress
+        template: mcp-sandbox/egress-deployment.yaml
+
+  - it: aligns the Playwright allowed host with the URL the core calls
+    values:
+      - ../values.lint.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --allowed-hosts=RELEASE-NAME-rikoo-playwright-mcp:8931
+        template: mcp-sandbox/playwright-deployment.yaml
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --proxy-server=http://RELEASE-NAME-rikoo-mcp-egress:8899
+        template: mcp-sandbox/playwright-deployment.yaml
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: SANDBOX_PLAYWRIGHT_URL
+            value: http://RELEASE-NAME-rikoo-playwright-mcp:8931/mcp
+        template: mcp-sandbox/core-deployment.yaml
+      - equal:
+          path: spec.template.spec.containers[0].image
+          value: mcr.microsoft.com/playwright/mcp:v0.0.79
+        template: mcp-sandbox/playwright-deployment.yaml
+
+  - it: shares the sandbox token between the worker and the core
+    values:
+      - ../values.lint.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: MCP_SANDBOX_TOKEN_SECRET
+            valueFrom:
+              secretKeyRef:
+                name: RELEASE-NAME-rikoo-app
+                key: sandbox-token-secret
+        template: mcp-sandbox/core-deployment.yaml
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: MCP_SANDBOX_URL
+            value: http://RELEASE-NAME-rikoo-mcp-sandbox:8090
+        template: worker/deployment.yaml
+
+  - it: gives the shell no route out except Playwright, and Playwright no route except the proxy
+    values:
+      - ../values.lint.yaml
+    asserts:
+      - hasDocuments:
+          count: 3
+        template: mcp-sandbox/networkpolicy.yaml
+      - equal:
+          path: spec.policyTypes
+          value: [Ingress, Egress]
+        documentIndex: 0
+        template: mcp-sandbox/networkpolicy.yaml
+      - equal:
+          path: spec.ingress[0].from[0].podSelector.matchLabels["app.kubernetes.io/component"]
+          value: worker
+        documentIndex: 0
+        template: mcp-sandbox/networkpolicy.yaml
+      - equal:
+          path: spec.egress[0].to[0].podSelector.matchLabels["app.kubernetes.io/component"]
+          value: playwright-mcp
+        documentIndex: 0
+        template: mcp-sandbox/networkpolicy.yaml
+      - equal:
+          path: spec.egress[1].to[0].namespaceSelector.matchLabels["kubernetes.io/metadata.name"]
+          value: kube-system
+        documentIndex: 0
+        template: mcp-sandbox/networkpolicy.yaml
+      - equal:
+          path: spec.egress[0].to[0].podSelector.matchLabels["app.kubernetes.io/component"]
+          value: mcp-egress
+        documentIndex: 1
+        template: mcp-sandbox/networkpolicy.yaml
+      - equal:
+          path: spec.policyTypes
+          value: [Ingress]
+        documentIndex: 2
+        template: mcp-sandbox/networkpolicy.yaml
+      - equal:
+          path: spec.ingress[0].from[0].podSelector.matchLabels["app.kubernetes.io/component"]
+          value: playwright-mcp
+        documentIndex: 2
+        template: mcp-sandbox/networkpolicy.yaml
+
+  - it: renders nothing of the sandbox when disabled, and drops the worker variable
+    values:
+      - ../values.lint.yaml
+    set:
+      rikoo.sandbox.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
+        template: mcp-sandbox/core-deployment.yaml
+      - hasDocuments:
+          count: 0
+        template: mcp-sandbox/networkpolicy.yaml
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: MCP_SANDBOX_URL
+            value: http://RELEASE-NAME-rikoo-mcp-sandbox:8090
+        template: worker/deployment.yaml
+
+  - it: uses an emptyDir for workspaces by default and a PVC on request
+    values:
+      - ../values.lint.yaml
+    asserts:
+      - hasDocuments:
+          count: 0
+        template: mcp-sandbox/core-pvc.yaml
+      - equal:
+          path: spec.template.spec.volumes[1].emptyDir.sizeLimit
+          value: 5Gi
+        template: mcp-sandbox/core-deployment.yaml
+  - it: creates the workspace PVC when persistence is enabled
+    values:
+      - ../values.lint.yaml
+    set:
+      rikoo.sandbox.core.workspace.persistence.enabled: true
+    asserts:
+      - isKind:
+          of: PersistentVolumeClaim
+        template: mcp-sandbox/core-pvc.yaml
+      - equal:
+          path: spec.template.spec.volumes[1].persistentVolumeClaim.claimName
+          value: RELEASE-NAME-rikoo-mcp-sandbox-workspaces
+        template: mcp-sandbox/core-deployment.yaml

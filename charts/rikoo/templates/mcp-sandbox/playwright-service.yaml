@@ -1,0 +1,21 @@
+{{- $s := .Values.rikoo.sandbox -}}
+{{- if $s.enabled }}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "rikoo.sandbox.playwrightServiceName" . }}
+  namespace: {{ $.Release.Namespace }}
+  labels:
+    {{- include "rikoo.labels" . | nindent 4 }}
+    app.kubernetes.io/component: playwright-mcp
+spec:
+  type: ClusterIP
+  ports:
+    - port: {{ $s.playwright.port }}
+      targetPort: mcp
+      protocol: TCP
+      name: mcp
+  selector:
+    {{- include "rikoo.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: playwright-mcp
+{{- end }}

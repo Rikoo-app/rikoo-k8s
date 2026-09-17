@@ -1,0 +1,174 @@
+suite: ingress, migrations and side services
+templates:
+  - ingress.yaml
+  - migrations/job.yaml
+  - sidecar-parsing/deployment.yaml
+  - sidecar-parsing/service.yaml
+  - worker/deployment.yaml
+  - api/hpa.yaml
+  - worker/scaled-object.yaml
+tests:
+  - it: renders no ingress by default
+    values:
+      - ../values.lint.yaml
+    asserts:
+      - hasDocuments:
+          count: 0
+        template: ingress.yaml
+
+  - it: routes every path of a host to the api Service with TLS
+    values:
+      - ../values.lint.yaml
+    set:
+      rikoo.ingress.enabled: true
+      rikoo.ingress.className: nginx
+      rikoo.ingress.annotations:
+        nginx.ingress.kubernetes.io/proxy-body-size: 12m
+      rikoo.ingress.tls.enabled: true
+      rikoo.ingress.tls.secretName: rikoo-tls
+      rikoo.ingress.hosts:
+        - host: rikoo.example.com
+          paths:
+            - path: /
+    asserts:
+      - equal:
+          path: spec.ingressClassName
+          value: nginx
+        template: ingress.yaml
+      - equal:
+          path: spec.rules[0].host
+          value: rikoo.example.com
+        template: ingress.yaml
+      - equal:
+          path: spec.rules[0].http.paths[0].pathType
+          value: Prefix
+        template: ingress.yaml
+      - equal:
+          path: spec.rules[0].http.paths[0].backend.service.name
+          value: RELEASE-NAME-rikoo-api
+        template: ingress.yaml
+      - equal:
+          path: spec.tls[0].secretName
+          value: rikoo-tls
+        template: ingress.yaml
+      - equal:
+          path: metadata.annotations["nginx.ingress.kubernetes.io/proxy-body-size"]
+          value: 12m
+        template: ingress.yaml
+
+  - it: runs the migrations from the api image as a post-install / pre-upgrade hook
+    values:
+      - ../values.lint.yaml
+    asserts:
+      - isKind:
+          of: Job
+        template: migrations/job.yaml
+      - equal:
+          path: metadata.annotations["helm.sh/hook"]
+          value: post-install,pre-upgrade
+        template: migrations/job.yaml
+      - matchRegex:
+          path: spec.template.spec.containers[0].image
+          pattern: rikoo-api:v0.0.0-lint$
+        template: migrations/job.yaml
+      - matchRegex:
+          path: spec.template.spec.containers[0].command[2]
+          pattern: prisma migrate deploy
+        template: migrations/job.yaml
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: DATABASE_URL
+            value: postgresql://rikoo:$(RIKOO_DB_PASSWORD)@RELEASE-NAME-postgresql:5432/rikoo?schema=public
+        template: migrations/job.yaml
+
+  - it: can leave migrations to the api entrypoint
+    values:
+      - ../values.lint.yaml
+    set:
+      rikoo.migrations.job.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
+        template: migrations/job.yaml
+
+  - it: waits for the api before starting the worker, unless told otherwise
+    values:
+      - ../values.lint.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.initContainers[0].name
+          value: wait-for-api
+        template: worker/deployment.yaml
+      - contains:
+          path: spec.template.spec.initContainers[0].env
+          content:
+            name: API_READY_URL
+            value: http://RELEASE-NAME-rikoo-api:3000/readyz
+        template: worker/deployment.yaml
+  - it: starts the worker without the init container when waitForApi is off
+    values:
+      - ../values.lint.yaml
+    set:
+      rikoo.worker.waitForApi: false
+    asserts:
+      - isNull:
+          path: spec.template.spec.initContainers
+        template: worker/deployment.yaml
+
+  - it: deploys the parsing sidecar with bounded resources and tells the worker where it is
+    values:
+      - ../values.lint.yaml
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].resources.limits.memory
+          value: 1Gi
+        template: sidecar-parsing/deployment.yaml
+      - equal:
+          path: spec.template.spec.containers[0].livenessProbe.httpGet.path
+          value: /health
+        template: sidecar-parsing/deployment.yaml
+      - equal:
+          path: spec.ports[0].port
+          value: 8001
+        template: sidecar-parsing/service.yaml
+      - contains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: RAG_SIDECAR_URL
+            value: http://RELEASE-NAME-rikoo-sidecar-parsing:8001
+        template: worker/deployment.yaml
+  - it: drops the sidecar and its variable when disabled
+    values:
+      - ../values.lint.yaml
+    set:
+      rikoo.sidecarParsing.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
+        template: sidecar-parsing/deployment.yaml
+      - notContains:
+          path: spec.template.spec.containers[0].env
+          content:
+            name: RAG_SIDECAR_URL
+            value: http://RELEASE-NAME-rikoo-sidecar-parsing:8001
+        template: worker/deployment.yaml
+
+  - it: renders an HPA and a KEDA ScaledObject on request, never both on one component
+    values:
+      - ../values.lint.yaml
+    set:
+      rikoo.api.hpa.enabled: true
+      rikoo.api.hpa.targetMemoryUtilizationPercentage: 80
+      rikoo.worker.keda.enabled: true
+    asserts:
+      - isKind:
+          of: HorizontalPodAutoscaler
+        template: api/hpa.yaml
+      - lengthEqual:
+          path: spec.metrics
+          count: 2
+        template: api/hpa.yaml
+      - isKind:
+          of: ScaledObject
+        template: worker/scaled-object.yaml
