@@ -1,0 +1,151 @@
+suite: settings judged against the environment contract
+templates:
+  - validations.yaml
+  - configmap-env.yaml
+tests:
+  - it: accepts the lint values, which set no product setting
+    values:
+      - ../values.lint.yaml
+    asserts:
+      - notFailedTemplate: {}
+
+  # A name absent from the contract is a typo, and a typo is a setting nobody ever reads. Before
+  # this check, `RUN_HISTORY_MAX_TURN` (singular) rendered happily and changed nothing.
+  - it: refuses a name this version of the product does not read
+    values:
+      - ../values.lint.yaml
+    set:
+      rikoo.settings.RUN_HISTORY_MAX_TURN: "60"
+    asserts:
+      - failedTemplate:
+          errorPattern: 'rikoo.settings: "RUN_HISTORY_MAX_TURN" is not a variable this version of Rikoo reads'
+        template: validations.yaml
+
+  - it: refuses a secret in a settings map, which would land in a ConfigMap
+    values:
+      - ../values.lint.yaml
+    set:
+      rikoo.settings.DATABASE_URL: postgres://rikoo:pw@db:5432/rikoo
+    asserts:
+      - failedTemplate:
+          errorPattern: '"DATABASE_URL" is a SECRET'
+        template: validations.yaml
+
+  # Two sources for one key leave the winner to render order, which is not something an operator
+  # should have to reason about.
+  - it: refuses a name the chart already sets
+    values:
+      - ../values.lint.yaml
+    set:
+      rikoo.settings.PUBLIC_URL: https://rikoo.example.test
+    asserts:
+      - failedTemplate:
+          errorPattern: '"PUBLIC_URL" is already set by the chart'
+        template: validations.yaml
+
+  # The feature flags carry a name built at render time from `rikoo.features`, so they cannot be
+  # listed among the managed names and need their own rule.
+  - it: refuses a feature flag set outside rikoo.features
+    values:
+      - ../values.lint.yaml
+    set:
+      rikoo.settings.RIKOO_FEATURE_AUDIT: "true"
+    asserts:
+      - failedTemplate:
+          errorPattern: '"RIKOO_FEATURE_AUDIT" is a feature flag'
+        template: validations.yaml
+
+  - it: refuses a worker variable set on the api, where nothing would read it
+    values:
+      - ../values.lint.yaml
+    set:
+      rikoo.api.settings.RUN_HISTORY_MAX_TURNS: "60"
+    asserts:
+      - failedTemplate:
+          errorPattern: '"RUN_HISTORY_MAX_TURNS" is read by \[worker\], and this map reaches \[api\]'
+        template: validations.yaml
+
+  - it: refuses a value that does not match the declared format
+    values:
+      - ../values.lint.yaml
+    set:
+      rikoo.worker.settings.RUN_HISTORY_MAX_TURNS: plenty
+    asserts:
+      - failedTemplate:
+          errorPattern: 'must be an integer, got "plenty"'
+        template: validations.yaml
+
+  - it: refuses a boolean that is not one
+    values:
+      - ../values.lint.yaml
+    set:
+      rikoo.worker.settings.MCP_HEALTH_ENABLED: "yes"
+    asserts:
+      - failedTemplate:
+          errorPattern: 'must be true or false, got "yes"'
+        template: validations.yaml
+
+  - it: refuses a URL without a scheme
+    values:
+      - ../values.lint.yaml
+    set:
+      rikoo.worker.settings.QDRANT_URL: qdrant:6333
+    asserts:
+      - failedTemplate:
+          errorPattern: 'must be a URL with a scheme, got "qdrant:6333"'
+        template: validations.yaml
+
+  # `additionalEnv` is the escape hatch: a name the contract does not know must still go through.
+  # The one refusal that remains is a secret carrying a literal, which would be written into the
+  # Deployment, and a Deployment is not a secret store.
+  - it: lets additionalEnv carry a name the contract does not know
+    values:
+      - ../values.lint.yaml
+    set:
+      rikoo.additionalEnv:
+        - name: SOME_FUTURE_KNOB
+          value: "1"
+    asserts:
+      - notFailedTemplate: {}
+
+  - it: refuses a secret carrying a literal value in additionalEnv
+    values:
+      - ../values.lint.yaml
+    set:
+      rikoo.additionalEnv:
+        - name: STRIPE_SECRET_KEY
+          value: sk_live_not_here
+    asserts:
+      - failedTemplate:
+          errorPattern: '"STRIPE_SECRET_KEY" is a SECRET and carries a literal value'
+        template: validations.yaml
+
+  - it: accepts the same secret handed over through a secretKeyRef
+    values:
+      - ../values.lint.yaml
+    set:
+      rikoo.additionalEnv:
+        - name: STRIPE_SECRET_KEY
+          valueFrom:
+            secretKeyRef:
+              name: rikoo-billing
+              key: stripe-secret-key
+    asserts:
+      - notFailedTemplate: {}
+
+  # What the operator sets must actually reach the containers, or the whole surface is decorative.
+  - it: renders an accepted shared setting into the ConfigMap both services read
+    values:
+      - ../values.lint.yaml
+    set:
+      rikoo.settings.ATTACHMENT_PDF_RENDER_MAX_PAGES: "12"
+      rikoo.settings.WORKSPACE_SURFACE_WIDGET: "false"
+    asserts:
+      - equal:
+          path: data.ATTACHMENT_PDF_RENDER_MAX_PAGES
+          value: "12"
+        template: configmap-env.yaml
+      - equal:
+          path: data.WORKSPACE_SURFACE_WIDGET
+          value: "false"
+        template: configmap-env.yaml

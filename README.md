@@ -11,6 +11,7 @@ application chart, sub-charts for the stores, examples, and unit tests for the c
 | `examples/external-components/`  | External PostgreSQL, Redis and object storage                                                    |
 | `examples/scaleway-kapsule/`     | A managed-cloud deployment: Kapsule, managed PostgreSQL, Object Storage                          |
 | `examples/local-kind/`           | A full trial on a local kind cluster, with images built on your workstation                      |
+| `examples/ha-external-stores/`   | Production: three replicas across zones, managed stores, queue-depth scaling, no credential in the values file |
 | `docs/decisions.md`              | The decisions taken and why                                                                      |
 
 Exercised on a kind cluster: install, migrations, upgrade and sandbox isolation are measured, not

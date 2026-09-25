@@ -641,7 +641,7 @@ template, which a partial render such as helm-unittest cannot resolve).
 */}}
 {{- define "rikoo.configChecksum" -}}
 {{- $r := .Values.rikoo -}}
-{{- dict "publicUrl" $r.publicUrl "corsOrigins" $r.corsOrigins "trustProxyHops" $r.trustProxyHops "logging" $r.logging "locale" $r.locale "signupMode" $r.signupMode "sessionSecureCookies" $r.sessionSecureCookies "upgradeUrl" $r.license.upgradeUrl "egress" $r.egress "attachments" $r.attachments | toYaml | sha256sum -}}
+{{- dict "publicUrl" $r.publicUrl "corsOrigins" $r.corsOrigins "trustProxyHops" $r.trustProxyHops "logging" $r.logging "locale" $r.locale "signupMode" $r.signupMode "sessionSecureCookies" $r.sessionSecureCookies "upgradeUrl" $r.license.upgradeUrl "egress" $r.egress "attachments" $r.attachments "settings" $r.settings | toYaml | sha256sum -}}
 {{- end -}}
 
 {{/*
@@ -651,5 +651,63 @@ Image pull secrets of a component. Takes (dict "root" $ "component" <component>)
 {{- with (.component.image.pullSecrets | default .root.Values.rikoo.image.pullSecrets) }}
 imagePullSecrets:
   {{- toYaml . | nindent 2 }}
+{{- end }}
+{{- end -}}
+
+{{/*
+The product's environment contract, shipped with the chart as `env-contract.json` and generated
+from the product's own variable manifest. It states, per variable a cluster may carry, what a
+renderer can act on: which services read it, whether it is a secret, which profiles require it,
+the value's format, its accepted values and its default.
+
+It is the only thing that lets this chart tell an operator a typo from a setting. Without it,
+`settings` and `additionalEnv` accept any name and a mistyped one is simply never read.
+*/}}
+{{- define "rikoo.contract" -}}
+{{- (.Files.Get "env-contract.json" | fromJson).variables | toJson -}}
+{{- end -}}
+
+{{/*
+Every environment variable this chart sets by itself, through the shared ConfigMap or through a
+component's `env`. An operator who also sets one of these in `settings` would be writing a value
+the chart overrides, or a duplicate key whose winner depends on render order: the validations
+refuse it and name the typed setting to use instead.
+
+Three names the chart invents are deliberately absent, being no part of the product's contract:
+`RIKOO_DB_PASSWORD` (expanded by Kubernetes into the connection URL, so no password is ever
+written in a manifest), `API_READY_URL` and `WAIT_TIMEOUT_SECONDS` (read by the worker's
+wait-for-api init container).
+
+`make contract-check` recomputes this list from the templates and refuses a drift. Editing a
+template without editing this list is the one way this guard could quietly stop guarding.
+*/}}
+{{- define "rikoo.managedEnvNames" -}}
+APP_DATABASE_URL ATTACHMENT_MAX_AUDIO_BYTES ATTACHMENT_MAX_BYTES ATTACHMENT_MAX_PER_TURN
+ATTACHMENT_MAX_TURN_BYTES ATTACHMENT_RETENTION_DAYS CLOUDFLARE_EMAIL_ACCOUNT_ID
+CLOUDFLARE_EMAIL_API_TOKEN CORS_ORIGINS DATABASE_URL EMAIL_FROM LOG_FORMAT LOG_LEVEL
+LOG_SLOW_QUERY_MS MCP_SANDBOX_TOKEN_SECRET MCP_SANDBOX_URL NODE_ENV
+OTEL_EXPORTER_OTLP_COMPRESSION OTEL_EXPORTER_OTLP_ENDPOINT OTEL_EXPORTER_OTLP_HEADERS
+OTEL_EXPORTER_OTLP_PROTOCOL OTEL_EXPORTER_OTLP_TIMEOUT OTEL_EXPORTER_OTLP_TRACES_ENDPOINT
+OTEL_EXPORTER_PROMETHEUS_PORT OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT OTEL_LOG_LEVEL
+OTEL_METRICS_EXPORTER OTEL_RESOURCE_ATTRIBUTES OTEL_SDK_DISABLED OTEL_SERVICE_NAME
+OTEL_TRACES_SAMPLER OTEL_TRACES_SAMPLER_ARG PORT PUBLIC_URL RAG_SIDECAR_URL REDIS_URL
+RIKOO_DEPLOYMENT_LICENSE RIKOO_EGRESS_ALLOW_CIDRS RIKOO_EGRESS_DEV_ALLOWLIST RIKOO_LICENSE_KEY
+RIKOO_SECRETS_PRIVATE_KEYS_PREVIOUS_FILE RIKOO_SECRETS_PRIVATE_KEY_FILE
+RIKOO_SECRETS_PUBLIC_KEY RIKOO_TOTP_KEY RIKOO_UPGRADE_URL RIKOO_VERSION RUN_CONCURRENCY
+S3_ACCESS_KEY_ID S3_BROWSER_ENDPOINT S3_BUCKET S3_ENDPOINT S3_FORCE_PATH_STYLE S3_REGION
+S3_SECRET_ACCESS_KEY S3_UPLOAD_URL_TTL_SEC SANDBOX_EGRESS_PROXY_HOST SANDBOX_EGRESS_PROXY_PORT
+SANDBOX_IDLE_TTL_MS SANDBOX_PLAYWRIGHT_URL SANDBOX_PORT SANDBOX_ROLE SANDBOX_ROOT
+SANDBOX_SHELL_MAX_OUTPUT_BYTES SANDBOX_SHELL_TIMEOUT_MS SESSION_SECURE_COOKIES
+SIDECAR_MAX_TEXT_CHARS SIDECAR_MAX_UPLOAD_BYTES SIGNUP_MODE SMTP_URL TRUST_PROXY_HOPS
+WEB_LOCALE WIDGET_SIGNING_KEY WIDGET_VISITOR_KEY WORKER_HEALTH_PORT
+{{- end -}}
+
+{{/*
+Settings shared by the api and the worker, rendered into the ConfigMap both read. Takes the root
+context. The per-component maps stay available for what only one service reads.
+*/}}
+{{- define "rikoo.sharedSettings" -}}
+{{- range $name, $value := .Values.rikoo.settings }}
+{{ $name }}: {{ $value | quote }}
 {{- end }}
 {{- end -}}

@@ -2,6 +2,10 @@
 Non-secret configuration shared by the api and the worker, consumed through `envFrom`. Every name
 is part of the product's documented environment contract. The deployments
 carry a checksum of this ConfigMap: changing a value here rolls the pods.
+
+The keys below come from the chart's own typed values. `rikoo.settings` is appended after them, and
+`validations.yaml` refuses any name it holds that the chart already sets: two sources for one key
+would leave the winner to render order, which is not a thing an operator should have to reason about.
 */ -}}
 apiVersion: v1
 kind: ConfigMap
@@ -50,3 +54,5 @@ data:
   {{- with .Values.rikoo.attachments.retentionDays }}
   ATTACHMENT_RETENTION_DAYS: {{ . | quote }}
   {{- end }}
+  {{- /* Product settings the chart does not model, shared by both services. */}}
+  {{- include "rikoo.sharedSettings" . | nindent 2 }}

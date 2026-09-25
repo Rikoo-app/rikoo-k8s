@@ -34,8 +34,27 @@ jobs:
       - name: Run helm lint
         run: helm lint charts/rikoo/ -f charts/rikoo/values.lint.yaml
 
-      - name: Render every example
-        run: make examples
+      # The settings validation is only as good as the list it compares against: a template that
+      # starts setting a name without declaring it makes the collision check blind.
+      - name: Check the environment contract and the managed-name list
+        run: make contract-check
+
+      # `make template` writes default.yaml and `make examples` the rest. The validation step below
+      # names default.yaml, so both have to run: naming a file nothing produces makes the step fail
+      # on a missing path instead of on an invalid manifest.
+      - name: Render the default values and every example
+        run: make template examples
+
+      # Every file `make template` and `make examples` write, named one by one: the action passes
+      # these to kubeconform without a shell, so a glob would arrive as a literal. The step below
+      # refuses a render that is not on this list, which is what keeps the two in step.
+      - name: Check that every render is validated
+        run: |
+          missing=0
+          for f in .render/*.yaml; do
+            grep -q " $f" .github/workflows/validate.yaml || { echo "✗ $f is rendered but not validated"; missing=1; }
+          done
+          exit $missing
 
       - name: Validate rendered manifests against the Kubernetes schemas
         uses: docker://ghcr.io/yannh/kubeconform:v0.6.7
@@ -43,4 +62,5 @@ jobs:
           args: >-
             -strict -ignore-missing-schemas -summary
             -kubernetes-version 1.30.0
-            .render/default.yaml .render/minimal.yaml .render/minimal-ingress.yaml .render/external.yaml .render/kapsule.yaml
+            .render/default.yaml .render/minimal.yaml .render/minimal-ingress.yaml
+            .render/external.yaml .render/kapsule.yaml .render/local-kind.yaml .render/ha.yaml

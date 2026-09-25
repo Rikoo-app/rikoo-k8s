@@ -36,9 +36,17 @@ examples: deps ## Render every example, so their values stay valid against the c
 	  -f examples/scaleway-kapsule/values.yaml > $(RENDER_DIR)/kapsule.yaml
 	helm template rikoo $(CHART) -n rikoo --set rikoo.image.tag=v0.0.0-lint \
 	  -f examples/local-kind/values.yaml > $(RENDER_DIR)/local-kind.yaml
+	helm template rikoo $(CHART) -n rikoo --set rikoo.image.registry=registry.example.com/rikoo --set rikoo.image.tag=v0.0.0-lint \
+	  -f examples/ha-external-stores/values.yaml > $(RENDER_DIR)/ha.yaml
 	@echo "✓ examples rendered into $(RENDER_DIR)/"
 
-check: lint test examples ## lint + tests + examples, what CI replays
+variables-doc: ## Rewrite charts/rikoo/VARIABLES.md from the shipped contract
+	node tools/variables-doc.mjs
+
+contract-check: ## Keep the managed-name list, the shipped contract and VARIABLES.md honest
+	bash tools/contract-check.sh
+
+check: lint contract-check test examples ## lint + contract + tests + examples, what CI replays
 
 package: deps ## Package the chart (rikoo-<version>.tgz)
 	helm package $(CHART)
@@ -46,4 +54,4 @@ package: deps ## Package the chart (rikoo-<version>.tgz)
 clean: ## Remove renders and packages
 	rm -rf $(RENDER_DIR) rikoo-*.tgz
 
-.PHONY: help deps lint test template examples check package clean
+.PHONY: help deps lint variables-doc contract-check test template examples check package clean

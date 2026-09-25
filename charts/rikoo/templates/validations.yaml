@@ -136,3 +136,88 @@ Render-time validations: refuse what the product would refuse at boot (or worse,
 {{- if and .Values.postgresql.deploy (gt (mul (int $workerReplicas) (int .Values.rikoo.worker.dbPool)) 90) -}}
     {{- fail (printf "PostgreSQL: %d worker replicas x %d connections (rikoo.worker.dbPool) exceed the 100-connection default of the bundled instance. Lower dbPool, or raise max_connections through postgresql.customConfig." (int $workerReplicas) (int .Values.rikoo.worker.dbPool)) -}}
 {{- end -}}
+
+# --- Settings judged against the product's environment contract -------------------------------
+# `settings` is documented as carrying the names of the product's own variable manifest, so a name
+# absent from the contract is a typo, and a typo is a setting that is never read. That is what this
+# block refuses, along with the three mistakes that cost the most: a secret written where it lands
+# in a ConfigMap, a variable the chart already sets, and a variable set where the service that
+# reads it will never see it.
+#
+# `additionalEnv` is judged far more loosely on purpose: it is the escape hatch, for a name this
+# version of the contract does not know, or a value that must come from elsewhere. The one thing it
+# still refuses is a secret carrying a literal, which would be written into the Deployment.
+{{- $contract := include "rikoo.contract" . | fromJson -}}
+{{- $managed := splitList " " (trim (regexReplaceAll "\\s+" (include "rikoo.managedEnvNames" .) " ")) -}}
+{{- range $surface := list
+  (dict "path" "rikoo.settings" "map" .Values.rikoo.settings "services" (list "api" "worker"))
+  (dict "path" "rikoo.api.settings" "map" .Values.rikoo.api.settings "services" (list "api"))
+  (dict "path" "rikoo.worker.settings" "map" .Values.rikoo.worker.settings "services" (list "worker"))
+-}}
+{{- range $name, $value := $surface.map -}}
+{{- $spec := index $contract $name -}}
+{{- if not $spec -}}
+    {{- fail (printf "%s: %q is not a variable this version of Rikoo reads. Check the spelling in env-contract.json, shipped with this chart; if you mean a name the contract does not know, use additionalEnv." $surface.path $name) -}}
+{{- end -}}
+{{- if $spec.secret -}}
+    {{- fail (printf "%s: %q is a SECRET. Set here it would land in a ConfigMap, in clear, readable by anyone who can read the namespace. Put it in a Secret and reference that Secret through additionalEnvFrom, or through the setting the chart provides for it." $surface.path $name) -}}
+{{- end -}}
+{{- if has $name $managed -}}
+    {{- fail (printf "%s: %q is already set by the chart. Two sources for one name leaves the winner to render order; use the chart's own value for it." $surface.path $name) -}}
+{{- end -}}
+{{- /* The feature flags carry a name built at render time from `rikoo.features`, so they cannot be
+       listed among the managed names. They are refused by their prefix instead, which also sends the
+       operator to the typed map, where an unknown key is caught and a value is a plain boolean. */ -}}
+{{- if hasPrefix "RIKOO_FEATURE_" $name -}}
+    {{- fail (printf "%s: %q is a feature flag. Set it through rikoo.features, which refuses an unknown key and takes a boolean; setting it here would collide with what that map renders." $surface.path $name) -}}
+{{- end -}}
+{{- /* `shared` and `ee` are libraries both services load, so either one reads those. */ -}}
+{{- $readers := list -}}
+{{- range $s := $spec.services -}}
+  {{- if or (eq $s "shared") (eq $s "ee") -}}
+    {{- $readers = concat $readers (list "api" "worker") -}}
+  {{- else -}}
+    {{- $readers = append $readers $s -}}
+  {{- end -}}
+{{- end -}}
+{{- $reachable := false -}}
+{{- range $svc := $surface.services -}}
+  {{- if has $svc $readers -}}{{- $reachable = true -}}{{- end -}}
+{{- end -}}
+{{- if not $reachable -}}
+    {{- fail (printf "%s: %q is read by %v, and this map reaches %v. Set it where the service that reads it will see it, otherwise the setting is decorative." $surface.path $name $spec.services $surface.services) -}}
+{{- end -}}
+{{- $v := toString $value -}}
+{{- if and $spec.values (not (has $v $spec.values)) -}}
+    {{- fail (printf "%s: %q must be one of %v, got %q." $surface.path $name $spec.values $v) -}}
+{{- end -}}
+{{- if and (eq $spec.format "int") (not (regexMatch "^-?[0-9]+$" $v)) -}}
+    {{- fail (printf "%s: %q must be an integer, got %q." $surface.path $name $v) -}}
+{{- end -}}
+{{- if and (eq $spec.format "bool") (not (has (lower $v) (list "true" "false"))) -}}
+    {{- fail (printf "%s: %q must be true or false, got %q." $surface.path $name $v) -}}
+{{- end -}}
+{{- if and (has $spec.format (list "url" "http-url" "origin")) (not (regexMatch "^https?://" $v)) -}}
+    {{- fail (printf "%s: %q must be a URL with a scheme, got %q." $surface.path $name $v) -}}
+{{- end -}}
+{{- /* An origin is compared as a whole by the anti-CSRF check: a path makes it never match. */ -}}
+{{- if and (eq $spec.format "origin") (not (regexMatch "^https?://[^/?#]+$" $v)) -}}
+    {{- fail (printf "%s: %q must be an origin (scheme://host[:port], no path), got %q." $surface.path $name $v) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+
+# A secret carrying a literal in `additionalEnv` is written into the Deployment, which is not a
+# secret store. `valueFrom` is the way, and it stays entirely free.
+{{- range $where := list
+  (dict "path" "rikoo.additionalEnv" "list" .Values.rikoo.additionalEnv)
+  (dict "path" "rikoo.api.pod.additionalEnv" "list" .Values.rikoo.api.pod.additionalEnv)
+  (dict "path" "rikoo.worker.pod.additionalEnv" "list" .Values.rikoo.worker.pod.additionalEnv)
+-}}
+{{- range $e := ($where.list | default list) -}}
+{{- $spec := index $contract $e.name -}}
+{{- if and $spec $spec.secret (hasKey $e "value") -}}
+    {{- fail (printf "%s: %q is a SECRET and carries a literal value, which would be written into the Deployment manifest. Use valueFrom with a secretKeyRef." $where.path $e.name) -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
