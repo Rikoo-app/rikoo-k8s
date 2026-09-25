@@ -1,0 +1,201 @@
+# Production profile: three zones, managed stores, no single point of failure that this chart can
+# remove. Read the README next to this file before using it: two things here depend on your cluster
+# (a CNI that enforces NetworkPolicies, and KEDA installed) and one part of Rikoo stays single-replica
+# on purpose.
+#
+#   kubectl create namespace rikoo
+#   # create the Secrets named below, then:
+#   helm install rikoo rikoo/rikoo -n rikoo -f values.yaml \
+#     --set rikoo.image.registry=<registry>/<namespace> --set rikoo.image.tag=vX.Y.Z
+
+rikoo:
+  image:
+    registry: ""
+    tag: ""
+    pullSecrets:
+      - name: rikoo-registry
+
+  # The canonical origin. A wrong value refuses every mutation with a 403 and breaks e-mail links,
+  # so it is the one setting to get right before anything else.
+  publicUrl: https://rikoo.example.com
+  # Behind one ingress controller that sets X-Forwarded-For itself.
+  trustProxyHops: 1
+  nodeEnv: production
+  sessionSecureCookies: true
+
+  logging:
+    level: info
+    format: json
+
+  # Every credential comes from Secrets you created; none is written in this file. The symmetric
+  # keys would otherwise be generated on first install, which a GitOps render cannot do reliably:
+  # `lookup` sees no cluster there, so each sync would rotate them.
+  secrets:
+    widgetSigningKey:
+      secretKeyRef: { name: rikoo-app, key: widget-signing-key }
+    widgetVisitorKey:
+      secretKeyRef: { name: rikoo-app, key: widget-visitor-key }
+    totpKey:
+      secretKeyRef: { name: rikoo-app, key: totp-key }
+    sandboxTokenSecret:
+      secretKeyRef: { name: rikoo-app, key: sandbox-token-secret }
+    sealing:
+      # RSA 3072 pair, generated once with OpenSSL and never by the chart: Helm cannot derive a
+      # public key from a private one, and a regenerated pair makes every sealed secret unreadable.
+      existingSecret: rikoo-sealing
+
+  # Three replicas, spread across zones, with a budget that keeps two of them during a drain.
+  replicas: 3
+
+  api:
+    pod:
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: rikoo
+              app.kubernetes.io/component: api
+      affinity:
+        # Preferred, not required: on a three-node cluster a hard rule would leave the third replica
+        # Pending for ever, and a Pending replica is worse than a co-located one.
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                topologyKey: kubernetes.io/hostname
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/name: rikoo
+                    app.kubernetes.io/component: api
+    resources:
+      requests: { cpu: "500m", memory: 1Gi }
+      limits: { memory: 2Gi }
+    pdb:
+      create: true
+      minAvailable: 2
+    # The api is request-driven, so CPU is the right signal here.
+    hpa:
+      enabled: true
+      minReplicas: 3
+      maxReplicas: 9
+      targetCPUUtilizationPercentage: 70
+
+  worker:
+    pod:
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/name: rikoo
+              app.kubernetes.io/component: worker
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                topologyKey: kubernetes.io/hostname
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/name: rikoo
+                    app.kubernetes.io/component: worker
+    resources:
+      requests: { cpu: "1", memory: 2Gi }
+      limits: { memory: 4Gi }
+    pdb:
+      create: true
+      minAvailable: 2
+    # Runs wait in a queue, so queue depth is the signal, not CPU: a worker blocked on a slow model
+    # call uses almost no CPU while the backlog grows. Requires KEDA and a TriggerAuthentication
+    # named `rikoo-redis` that carries the Redis address and password.
+    keda:
+      enabled: true
+      minReplicas: 3
+      maxReplicas: 12
+      pollingInterval: 15
+      triggers:
+        - type: redis
+          metricType: AverageValue
+          metadata:
+            listName: "bull:llm:wait"
+            listLength: "5"
+            enableTLS: "true"
+          authenticationRef:
+            name: rikoo-redis
+    # 12 replicas at 15 connections is 180 connections at full stretch: check it against your
+    # instance's maximum before raising either number. The chart refuses the pair that would exceed
+    # a bundled instance, but it cannot know the limit of a managed one.
+    dbPool: 15
+    runConcurrency: 4
+    # Product settings the chart does not model, checked at render time against the contract shipped
+    # with it: the name must be one this version of Rikoo reads, the worker must be a service that
+    # reads it, and the value must match the declared format. `make contract-check` keeps that true.
+    settings:
+      RAG_INGEST_CONCURRENCY: "4"
+      KNOWLEDGE_CONCURRENCY: "8"
+
+  # Attachment retention has a typed setting of its own, so it goes there. Putting it in `settings`
+  # is refused at render time, which is how this profile found out.
+  attachments:
+    retentionDays: "90"
+
+  # Stateless, so it gets the same treatment as the api and the worker. Two replicas is enough: it
+  # only serves rich PDF and Office parsing, and the worker falls back on its own parsers if it is
+  # unreachable, so its loss degrades quality rather than stopping runs.
+  sidecarParsing:
+    replicas: 2
+    pdb:
+      create: true
+      minAvailable: 1
+
+  ingress:
+    enabled: true
+    className: nginx
+    annotations:
+      # Must be at least `rikoo.attachments.maxBytes`, or an upload dies at the proxy with a 413
+      # before the product ever applies its own policy.
+      nginx.ingress.kubernetes.io/proxy-body-size: 25m
+      nginx.ingress.kubernetes.io/proxy-read-timeout: "300"
+    hosts:
+      - host: rikoo.example.com
+        paths:
+          - path: /
+            pathType: Prefix
+    tls:
+      enabled: true
+      secretName: rikoo-tls
+
+  # What stays single-replica, on purpose. The MCP sandbox holds one workspace per conversation, so a
+  # second replica would answer about state it does not have; it runs one pod with the `Recreate`
+  # strategy, and a conversation whose sandbox pod is replaced loses that workspace. Its browser and
+  # its egress proxy follow it, being reachable only from it. This is the one part of Rikoo a cluster
+  # does not make redundant, and the README next to this file says what it costs.
+
+# Managed PostgreSQL with pgvector. The role must be able to create extensions: the first migration
+# runs `CREATE EXTENSION IF NOT EXISTS vector`, which usually means owning the database.
+postgresql:
+  deploy: false
+  url:
+    secretKeyRef: { name: rikoo-db, key: url }
+
+# Managed Redis. `maxmemory-policy noeviction` is required on the target: under eviction, queued
+# jobs are lost, and a lost job is a run that never finishes and never reports why.
+redis:
+  deploy: false
+  url:
+    secretKeyRef: { name: rikoo-redis-url, key: url }
+
+# Managed object storage.
+s3:
+  deploy: false
+  endpoint: https://s3.eu-west-1.amazonaws.com
+  region: eu-west-1
+  bucket: rikoo-production
+  forcePathStyle: false
+  accessKeyId:
+    secretKeyRef: { name: rikoo-s3, key: access-key-id }
+  secretAccessKey:
+    secretKeyRef: { name: rikoo-s3, key: secret-access-key }

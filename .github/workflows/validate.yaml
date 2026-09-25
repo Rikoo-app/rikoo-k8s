@@ -34,6 +34,11 @@ jobs:
       - name: Run helm lint
         run: helm lint charts/rikoo/ -f charts/rikoo/values.lint.yaml
 
+      # The settings validation is only as good as the list it compares against: a template that
+      # starts setting a name without declaring it makes the collision check blind.
+      - name: Check the environment contract and the managed-name list
+        run: make contract-check
+
       - name: Render every example
         run: make examples
 
@@ -43,4 +48,4 @@ jobs:
           args: >-
             -strict -ignore-missing-schemas -summary
             -kubernetes-version 1.30.0
-            .render/default.yaml .render/minimal.yaml .render/minimal-ingress.yaml .render/external.yaml .render/kapsule.yaml
+            .render/default.yaml .render/minimal.yaml .render/minimal-ingress.yaml .render/external.yaml .render/kapsule.yaml .render/ha.yaml

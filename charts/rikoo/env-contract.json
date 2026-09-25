@@ -1,0 +1,1285 @@
+{
+  "generatedFrom": "packages/shared/src/config/env-manifest.ts",
+  "regenerate": "make env-generate",
+  "verify": "make env-check",
+  "variables": {
+    "NODE_ENV": {
+      "services": ["api", "worker"],
+      "secret": false,
+      "required": ["self-hosted", "saas"],
+      "format": "enum",
+      "values": ["development", "test", "production"],
+      "default": "development"
+    },
+    "DATABASE_URL": {
+      "services": ["api", "worker", "shared", "ee"],
+      "secret": true,
+      "required": ["self-hosted", "saas"],
+      "format": "postgres-url",
+      "probe": "postgres"
+    },
+    "APP_DATABASE_URL": {
+      "services": ["api", "shared"],
+      "secret": true,
+      "required": [],
+      "format": "postgres-url",
+      "probe": "postgres"
+    },
+    "REDIS_URL": {
+      "services": ["api", "worker"],
+      "secret": false,
+      "required": ["self-hosted", "saas"],
+      "format": "redis-url",
+      "probe": "redis"
+    },
+    "PORT": {
+      "services": ["api"],
+      "secret": false,
+      "required": [],
+      "format": "int",
+      "default": "3000"
+    },
+    "WORKER_HEALTH_PORT": {
+      "services": ["worker"],
+      "secret": false,
+      "required": [],
+      "format": "int",
+      "default": "3100"
+    },
+    "PUBLIC_URL": {
+      "services": ["api", "worker"],
+      "secret": false,
+      "required": ["self-hosted", "saas"],
+      "format": "origin",
+      "default": "http://localhost:3000"
+    },
+    "CORS_ORIGINS": {
+      "services": ["api"],
+      "secret": false,
+      "required": [],
+      "format": "csv-urls",
+      "default": "http://localhost:3000,http://localhost:4200"
+    },
+    "TRUST_PROXY_HOPS": {
+      "services": ["api"],
+      "secret": false,
+      "required": ["self-hosted", "saas"],
+      "format": "int"
+    },
+    "RIKOO_VERSION": {
+      "services": ["api"],
+      "secret": false,
+      "required": [],
+      "format": "nonempty",
+      "default": "0.0.0"
+    },
+    "RIKOO_SECRETS_PUBLIC_KEY": {
+      "services": ["api"],
+      "secret": false,
+      "required": ["self-hosted", "saas"],
+      "format": "pem-public"
+    },
+    "RIKOO_SECRETS_PRIVATE_KEY": {
+      "services": ["worker"],
+      "secret": true,
+      "required": [],
+      "format": "pem-private",
+      "orElse": ["RIKOO_SECRETS_PRIVATE_KEY_FILE"]
+    },
+    "RIKOO_SECRETS_PRIVATE_KEY_FILE": {
+      "services": ["worker"],
+      "secret": false,
+      "required": ["self-hosted", "saas"],
+      "format": "path",
+      "orElse": ["RIKOO_SECRETS_PRIVATE_KEY"]
+    },
+    "RIKOO_SECRETS_PRIVATE_KEYS_PREVIOUS": {
+      "services": ["worker"],
+      "secret": true,
+      "required": [],
+      "format": "pem-private"
+    },
+    "RIKOO_SECRETS_PRIVATE_KEYS_PREVIOUS_FILE": {
+      "services": ["worker"],
+      "secret": false,
+      "required": [],
+      "format": "path"
+    },
+    "S3_ENDPOINT": {
+      "services": ["api", "worker"],
+      "secret": false,
+      "required": ["self-hosted", "saas"],
+      "format": "http-url"
+    },
+    "S3_BROWSER_ENDPOINT": {
+      "services": ["api"],
+      "secret": false,
+      "required": [],
+      "format": "http-url",
+      "default": "http://localhost:9000"
+    },
+    "S3_REGION": {
+      "services": ["api", "worker"],
+      "secret": false,
+      "required": [],
+      "format": "nonempty",
+      "default": "us-east-1"
+    },
+    "S3_BUCKET": {
+      "services": ["api", "worker"],
+      "secret": false,
+      "required": ["self-hosted", "saas"],
+      "format": "nonempty",
+      "probe": "s3"
+    },
+    "S3_ACCESS_KEY_ID": {
+      "services": ["api", "worker"],
+      "secret": true,
+      "required": ["self-hosted", "saas"],
+      "format": "nonempty"
+    },
+    "S3_SECRET_ACCESS_KEY": {
+      "services": ["api", "worker"],
+      "secret": true,
+      "required": ["self-hosted", "saas"],
+      "format": "nonempty"
+    },
+    "S3_ACCESS_KEY": {
+      "services": ["worker"],
+      "secret": true,
+      "required": [],
+      "format": "nonempty",
+      "aliasOf": "S3_ACCESS_KEY_ID"
+    },
+    "S3_SECRET_KEY": {
+      "services": ["worker"],
+      "secret": true,
+      "required": [],
+      "format": "nonempty",
+      "aliasOf": "S3_SECRET_ACCESS_KEY"
+    },
+    "S3_FORCE_PATH_STYLE": {
+      "services": ["api"],
+      "secret": false,
+      "required": [],
+      "format": "bool",
+      "default": "true"
+    },
+    "S3_MAX_UPLOAD_BYTES": {
+      "services": ["api"],
+      "secret": false,
+      "required": [],
+      "format": "int"
+    },
+    "S3_UPLOAD_URL_TTL_SEC": {
+      "services": ["api", "worker"],
+      "secret": false,
+      "required": [],
+      "format": "int"
+    },
+    "MINIO_ROOT_USER": {
+      "services": ["api"],
+      "secret": false,
+      "required": [],
+      "format": "nonempty",
+      "default": "rikoo"
+    },
+    "MINIO_ROOT_PASSWORD": {
+      "services": ["api"],
+      "secret": true,
+      "required": [],
+      "format": "nonempty",
+      "default": "rikoominio"
+    },
+    "RLS_ORG_POOL_MAX": {
+      "services": ["shared"],
+      "secret": false,
+      "required": [],
+      "format": "int"
+    },
+    "RIKOO_DEPLOYMENT_LICENSE": {
+      "services": ["api"],
+      "secret": true,
+      "required": ["saas"],
+      "format": "base64",
+      "probe": "license"
+    },
+    "RIKOO_LICENSE_KEY": {
+      "services": ["api"],
+      "secret": true,
+      "required": [],
+      "format": "nonempty",
+      "minLength": 32
+    },
+    "RIKOO_UPGRADE_URL": {
+      "services": ["api"],
+      "secret": false,
+      "required": [],
+      "format": "http-url",
+      "default": "https://rikoo.io/enterprise"
+    },
+    "RIKOO_FEATURE_USAGE": {
+      "services": ["api"],
+      "secret": false,
+      "required": [],
+      "format": "bool"
+    },
+    "RIKOO_FEATURE_FEEDBACK": {
+      "services": ["api"],
+      "secret": false,
+      "required": [],
+      "format": "bool"
+    },
+    "RIKOO_FEATURE_AUDIT": {
+      "services": ["api"],
+      "secret": false,
+      "required": [],
+      "format": "bool"
+    },
+    "RIKOO_FEATURE_HITL": {
+      "services": ["api"],
+      "secret": false,
+      "required": [],
+      "format": "bool"
+    },
+    "RIKOO_FEATURE_GATES": {
+      "services": ["api"],
+      "secret": false,
+      "required": [],
+      "format": "bool"
+    },
+    "RIKOO_FEATURE_SSO": {
+      "services": ["api"],
+      "secret": false,
+      "required": [],
+      "format": "bool"
+    },
+    "RIKOO_FEATURE_CONNECTORS": {
+      "services": ["api"],
+      "secret": false,
+      "required": [],
+      "format": "bool"
+    },
+    "RIKOO_FEATURE_OTLP_FANOUT": {
+      "services": ["api"],
+      "secret": false,
+      "required": [],
+      "format": "bool"
+    },
+    "RIKOO_FEATURE_VARIABLES": {
+      "services": ["api"],
+      "secret": false,
+      "required": [],
+      "format": "bool"
+    },
+    "RIKOO_FEATURE_ALERTING": {
+      "services": ["api"],
+      "secret": false,
+      "required": [],
+      "format": "bool"
+    },
+    "WIDGET_SIGNING_KEY": {
+      "services": ["api"],
+      "secret": true,
+      "required": ["self-hosted", "saas"],
+      "format": "nonempty",
+      "default": "dev-insecure-widget-signing-key-x",
+      "minLength": 32
+    },
+    "WIDGET_VISITOR_KEY": {
+      "services": ["api"],
+      "secret": true,
+      "required": [],
+      "format": "nonempty"
+    },
+    "WIDGET_STREAM_TICKET_TTL_SEC": {
+      "services": ["api"],
+      "secret": false,
+      "required": [],
+      "format": "int"
+    },
+    "WIDGET_CONVERSATION_IDLE_SEC": {
+      "services": ["api"],
+      "secret": false,
+      "required": [],
+      "format": "int"
+    },
+    "WIDGET_RUN_MAX_COST_USD": {
+      "services": ["api"],
+      "secret": false,
+      "required": [],
+      "format": "decimal"
+    },
+    "WIDGET_RUN_MAX_COST_EUR": {
+      "services": ["api"],
+      "secret": false,
+      "required": [],
+      "format": "decimal",
+      "aliasOf": "WIDGET_RUN_MAX_COST_USD"
+    },
+    "WIDGET_RUN_MAX_TOKENS": {
+      "services": ["api"],
+      "secret": false,
+      "required": [],
+      "format": "int"
+    },
+    "WIDGET_DIST_PATH": {
+      "services": ["api"],
+      "secret": false,
+      "required": [],
+      "format": "path"
+    },
+    "SERVE_WEB": {
+      "services": ["api"],
+      "secret": false,
+      "required": [],
+      "format": "bool",
+      "default": "true"
+    },
+    "WEB_DIST_PATH": {
+      "services": ["api"],
+      "secret": false,
+      "required": [],
+      "format": "path"
+    },
+    "WEB_LOCALE": {
+      "services": ["api"],
+      "secret": false,
+      "required": [],
+      "format": "enum",
+      "values": ["en", "fr"],
+      "default": "en"
+    },
+    "SESSION_SECURE_COOKIES": {
+      "services": ["api"],
+      "secret": false,
+      "required": [],
+      "format": "enum",
+      "values": ["true", "false"]
+    },
+    "SESSION_RETENTION_DAYS": {
+      "services": ["worker"],
+      "secret": false,
+      "required": [],
+      "format": "int"
+    },
+    "SIGNUP_MODE": {
+      "services": ["api"],
+      "secret": false,
+      "required": ["saas"],
+      "format": "enum",
+      "values": ["invite", "open", "closed"]
+    },
+    "SIGNUP_UNINVITED_MAX_PER_HOUR": {
+      "services": ["api"],
+      "secret": false,
+      "required": [],
+      "format": "int"
+    },
+    "TENANT_PURGE_GRACE_DAYS": {
+      "services": ["api", "worker"],
+      "secret": false,
+      "required": [],
+      "format": "int"
+    },
+    "RIKOO_TOTP_KEY": {
+      "services": ["api"],
+      "secret": true,
+      "required": ["saas"],
+      "format": "nonempty",
+      "minLength": 32
+    },
+    "SMTP_URL": {
+      "services": ["worker"],
+      "secret": true,
+      "required": [],
+      "format": "url",
+      "probe": "smtp"
+    },
+    "EMAIL_FROM": {
+      "services": ["worker"],
+      "secret": false,
+      "required": [],
+      "format": "email-from",
+      "default": "Rikoo <no-reply@rikoo.local>"
+    },
+    "CLOUDFLARE_EMAIL_ACCOUNT_ID": {
+      "services": ["worker"],
+      "secret": false,
+      "required": [],
+      "format": "nonempty",
+      "probe": "cloudflare"
+    },
+    "CLOUDFLARE_EMAIL_API_TOKEN": {
+      "services": ["worker"],
+      "secret": true,
+      "required": [],
+      "format": "nonempty"
+    },
+    "STRIPE_SECRET_KEY": {
+      "services": ["ee"],
+      "secret": true,
+      "required": ["saas"],
+      "format": "nonempty"
+    },
+    "STRIPE_WEBHOOK_SECRET": {
+      "services": ["ee"],
+      "secret": true,
+      "required": ["saas"],
+      "format": "nonempty"
+    },
+    "EE_ADMIN_TOKEN": {
+      "services": ["ee"],
+      "secret": true,
+      "required": [],
+      "format": "nonempty"
+    },
+    "PORTAL_ADMIN_TOKEN": {
+      "services": ["ee"],
+      "secret": true,
+      "required": [],
+      "format": "nonempty"
+    },
+    "PLATFORM_IDP_GOOGLE_CLIENT_ID": {
+      "services": ["ee"],
+      "secret": false,
+      "required": [],
+      "format": "nonempty"
+    },
+    "PLATFORM_IDP_APPLE_CLIENT_ID": {
+      "services": ["ee"],
+      "secret": false,
+      "required": [],
+      "format": "nonempty"
+    },
+    "RUN_CONCURRENCY": {
+      "services": ["worker"],
+      "secret": false,
+      "required": [],
+      "format": "int",
+      "default": "1"
+    },
+    "RUN_LOCK_TTL_MS": {
+      "services": ["worker"],
+      "secret": false,
+      "required": [],
+      "format": "int"
+    },
+    "RUN_RELAY_INTERVAL_MS": {
+      "services": ["worker"],
+      "secret": false,
+      "required": [],
+      "format": "int",
+      "default": "500"
+    },
+    "RUN_WAIT_BUDGET_MS": {
+      "services": ["worker"],
+      "secret": false,
+      "required": [],
+      "format": "int",
+      "default": "300000"
+    },
+    "RUN_HISTORY_MAX_TURNS": {
+      "services": ["worker"],
+      "secret": false,
+      "required": [],
+      "format": "int",
+      "default": "8"
+    },
+    "RUN_HISTORY_MESSAGE_MAX_CHARS": {
+      "services": ["worker"],
+      "secret": false,
+      "required": [],
+      "format": "int",
+      "default": "4000"
+    },
+    "RUN_CONTEXT_TOTAL_MAX_CHARS": {
+      "services": ["worker"],
+      "secret": false,
+      "required": [],
+      "format": "int",
+      "default": "300000"
+    },
+    "RUN_TOOL_RESULT_MAX_CHARS": {
+      "services": ["worker"],
+      "secret": false,
+      "required": [],
+      "format": "int",
+      "default": "24000"
+    },
+    "RUN_TOOL_ROUND_MAX_CHARS": {
+      "services": ["worker"],
+      "secret": false,
+      "required": [],
+      "format": "int",
+      "default": "48000"
+    },
+    "RUN_TOOL_RESULT_MAX_IMAGES": {
+      "services": ["worker"],
+      "secret": false,
+      "required": [],
+      "format": "int",
+      "default": "3"
+    },
+    "RUN_TOOL_PREVIEW_CHARS": {
+      "services": ["worker"],
+      "secret": false,
+      "required": [],
+      "format": "int"
+    },
+    "RUN_KNOWLEDGE_CHUNK_MAX_CHARS": {
+      "services": ["worker"],
+      "secret": false,
+      "required": [],
+      "format": "int",
+      "default": "4000"
+    },
+    "RUN_KNOWLEDGE_RESULT_MAX_CHARS": {
+      "services": ["worker"],
+      "secret": false,
+      "required": [],
+      "format": "int",
+      "default": "24000"
+    },
+    "RUN_KNOWLEDGE_ROUND_MAX_CHARS": {
+      "services": ["worker"],
+      "secret": false,
+      "required": [],
+      "format": "int",
+      "default": "48000"
+    },
+    "RUN_KNOWLEDGE_CONTEXT_MAX_CHARS": {
+      "services": ["worker"],
+      "secret": false,
+      "required": [],
+      "format": "int"
+    },
+    "RUN_SKILL_INSTRUCTIONS_MAX_CHARS": {
+      "services": ["worker"],
+      "secret": false,
+      "required": [],
+      "format": "int"
+    },
+    "RUN_VIEW_ATTACHMENT_MAX_CHARS": {
+      "services": ["worker"],
+      "secret": false,
+      "required": [],
+      "format": "int",
+      "default": "8000"
+    },
+    "RUN_VIEW_ATTACHMENT_MAX_IMAGES": {
+      "services": ["worker"],
+      "secret": false,
+      "required": [],
+      "format": "int",
+      "default": "3"
+    },
+    "RUN_VIEW_ATTACHMENT_MAX_TOKENS": {
+      "services": ["worker"],
+      "secret": false,
+      "required": [],
+      "format": "int",
+      "default": "24000"
+    },
+    "RUN_ABORT_RELAY_INTERVAL_MS": {
+      "services": ["worker"],
+      "secret": false,
+      "required": [],
+      "format": "int"
+    },
+    "RUN_RESUME_RELAY_INTERVAL_MS": {
+      "services": ["worker"],
+      "secret": false,
+      "required": [],
+      "format": "int"
+    },
+    "ASK_USER_TIMEOUT_MINUTES": {
+      "services": ["worker"],
+      "secret": false,
+      "required": [],
+      "format": "int"
+    },
+    "PAGE_TOOL_HOT_WAIT_MS": {
+      "services": ["worker"],
+      "secret": false,
+      "required": [],
+      "format": "int"
+    },
+    "PAGE_TOOL_HOT_BUDGET_MS": {
+      "services": ["worker"],
+      "secret": false,
+      "required": [],
+      "format": "int"
+    },
+    "HITL_DECISION_RELAY_INTERVAL_MS": {
+      "services": ["worker"],
+      "secret": false,
+      "required": [],
+      "format": "int"
+    },
+    "PIPELINE_RELAY_INTERVAL_MS": {
+      "services": ["worker"],
+      "secret": false,
+      "required": [],
+      "format": "int"
+    },
+    "TRACE_WRITE_CONCURRENCY": {
+      "services": ["worker"],
+      "secret": false,
+      "required": [],
+      "format": "int",
+      "default": "4"
+    },
+    "RAG_INGEST_CONCURRENCY": {
+      "services": ["worker"],
+      "secret": false,
+      "required": [],
+      "format": "int",
+      "default": "2"
+    },
+    "RAG_INGEST_INSERT_BATCH": {
+      "services": ["worker"],
+      "secret": false,
+      "required": [],
+      "format": "int",
+      "default": "250"
+    },
+    "RAG_INGEST_TX_TIMEOUT_MS": {
+      "services": ["worker"],
+      "secret": false,
+      "required": [],
+      "format": "int",
+      "default": "60000"
+    },
+    "RAG_EMBED_BATCH": {
+      "services": ["worker"],
+      "secret": false,
+      "required": [],
+      "format": "int"
+    },
+    "RAG_EMBED_BATCH_CHARS": {
+      "services": ["worker"],
+      "secret": false,
+      "required": [],
+      "format": "int"
+    },
+    "RAG_MAX_CHUNKS_PER_SOURCE": {
+      "services": ["worker"],
+      "secret": false,
+      "required": [],
+      "format": "int"
+    },
+    "RAG_HNSW_EF_SEARCH": {
+      "services": ["worker"],
+      "secret": false,
+      "required": [],
+      "format": "int"
+    },
+    "RETRIEVAL_SEARCH_CONCURRENCY": {
+      "services": ["worker"],
+      "secret": false,
+      "required": [],
+      "format": "int",
+      "default": "8"
+    },
+    "RETRIEVAL_SEARCH_RELAY_INTERVAL_MS": {
+      "services": ["worker"],
+      "secret": false,
+      "required": [],
+      "format": "int"
+    },
+    "RAG_RELAY_INTERVAL_MS": {
+      "services": ["worker"],
+      "secret": false,
+      "required": [],
+      "format": "int"
+    },
+    "RAG_PDF_TIMEOUT_MS": {
+      "services": ["worker"],
+      "secret": false,
+      "required": [],
+      "format": "int"
+    },
+    "RAG_TMP_DIR": {
+      "services": ["worker"],
+      "secret": false,
+      "required": [],
+      "format": "path"
+    },
+    "RAG_SIDECAR_URL": {
+      "services": ["worker"],
+      "secret": false,
+      "required": [],
+      "format": "http-url",
+      "default": "http://sidecar-parsing:8001"
+    },
+    "KNOWLEDGE_CONCURRENCY": {
+      "services": ["worker"],
+      "secret": false,
+      "required": [],
+      "format": "int",
+      "default": "4"
+    },
+    "KNOWLEDGE_CLEANUP_CONCURRENCY": {
+      "services": ["worker"],
+      "secret": false,
+      "required": [],
+      "format": "int",
+      "default": "1"
+    },
+    "KNOWLEDGE_RELAY_INTERVAL_MS": {
+      "services": ["worker"],
+      "secret": false,
+      "required": [],
+      "format": "int"
+    },
+    "KNOWLEDGE_INFLIGHT_STALE_MS": {
+      "services": ["worker"],
+      "secret": false,
+      "required": [],
+      "format": "int"
+    },
+    "KNOWLEDGE_AWAITING_UPLOAD_STALE_MS": {
+      "services": ["worker"],
+      "secret": false,
+      "required": [],
+      "format": "int"
+    },
+    "SOURCE_SYNC_CONCURRENCY": {
+      "services": ["worker"],
+      "secret": false,
+      "required": [],
+      "format": "int"
+    },
+    "ATTACHMENT_EXTRA_MEDIA_TYPES": {
+      "services": ["api", "worker"],
+      "secret": false,
+      "required": [],
+      "format": "nonempty"
+    },
+    "ATTACHMENT_MAX_BYTES": {
+      "services": ["api", "worker"],
+      "secret": false,
+      "required": [],
+      "format": "int"
+    },
+    "ATTACHMENT_MAX_AUDIO_BYTES": {
+      "services": ["api"],
+      "secret": false,
+      "required": [],
+      "format": "int"
+    },
+    "ATTACHMENT_MAX_PER_TURN": {
+      "services": ["api", "worker"],
+      "secret": false,
+      "required": [],
+      "format": "int"
+    },
+    "ATTACHMENT_MAX_TURN_BYTES": {
+      "services": ["api", "worker"],
+      "secret": false,
+      "required": [],
+      "format": "int"
+    },
+    "ATTACHMENT_RETENTION_DAYS": {
+      "services": ["worker"],
+      "secret": false,
+      "required": [],
+      "format": "int"
+    },
+    "ATTACHMENT_PDF_RENDER_MAX_PAGES": {
+      "services": ["worker"],
+      "secret": false,
+      "required": [],
+      "format": "int",
+      "default": "5"
+    },
+    "ATTACHMENT_PDF_RENDER_TIMEOUT_MS": {
+      "services": ["worker"],
+      "secret": false,
+      "required": [],
+      "format": "int",
+      "default": "120000"
+    },
+    "WEB_IMAGE_MAX_BYTES": {
+      "services": ["worker"],
+      "secret": false,
+      "required": [],
+      "format": "int"
+    },
+    "WEB_IMAGE_RETENTION_DAYS": {
+      "services": ["worker"],
+      "secret": false,
+      "required": [],
+      "format": "int"
+    },
+    "SIDECAR_MAX_UPLOAD_BYTES": {
+      "services": ["sidecar"],
+      "secret": false,
+      "required": [],
+      "format": "int"
+    },
+    "SIDECAR_MAX_TEXT_CHARS": {
+      "services": ["sidecar"],
+      "secret": false,
+      "required": [],
+      "format": "int"
+    },
+    "MCP_SANDBOX_TOKEN_SECRET": {
+      "services": ["worker", "sidecar"],
+      "secret": true,
+      "required": ["self-hosted", "saas"],
+      "format": "nonempty"
+    },
+    "MCP_SANDBOX_URL": {
+      "services": ["worker"],
+      "secret": false,
+      "required": [],
+      "format": "http-url",
+      "default": "http://mcp-sandbox:8090"
+    },
+    "MCP_SANDBOX_BROWSER_URL": {
+      "services": ["worker"],
+      "secret": false,
+      "required": [],
+      "format": "http-url"
+    },
+    "MCP_SANDBOX_TYPE": {
+      "services": ["api", "worker"],
+      "secret": false,
+      "required": [],
+      "format": "enum",
+      "values": ["none", "gvisor", "microvm"],
+      "default": "none"
+    },
+    "MCP_SANDBOX_WORKSPACE_TTL_S": {
+      "services": ["worker"],
+      "secret": false,
+      "required": [],
+      "format": "int",
+      "default": "900"
+    },
+    "WORKSPACE_SURFACE_WIDGET": {
+      "services": ["api", "worker"],
+      "secret": false,
+      "required": [],
+      "format": "bool",
+      "default": "false"
+    },
+    "WORKSPACE_SURFACE_API": {
+      "services": ["api", "worker"],
+      "secret": false,
+      "required": [],
+      "format": "bool",
+      "default": "true"
+    },
+    "WORKSPACE_SURFACE_SLACK": {
+      "services": ["api", "worker"],
+      "secret": false,
+      "required": [],
+      "format": "bool",
+      "default": "true"
+    },
+    "WORKSPACE_SURFACE_STUDIO": {
+      "services": ["api", "worker"],
+      "secret": false,
+      "required": [],
+      "format": "bool",
+      "default": "true"
+    },
+    "MCP_HEALTH_ENABLED": {
+      "services": ["worker"],
+      "secret": false,
+      "required": [],
+      "format": "bool",
+      "default": "true"
+    },
+    "MCP_HEALTH_DEFAULT_INTERVAL_S": {
+      "services": ["worker"],
+      "secret": false,
+      "required": [],
+      "format": "int",
+      "default": "600"
+    },
+    "MCP_SCHEMA_DRIFT_POLICY": {
+      "services": ["worker"],
+      "secret": false,
+      "required": [],
+      "format": "nonempty"
+    },
+    "SANDBOX_ROOT": {
+      "services": ["sidecar"],
+      "secret": false,
+      "required": [],
+      "format": "path",
+      "default": "/workspaces"
+    },
+    "SANDBOX_PORT": {
+      "services": ["sidecar"],
+      "secret": false,
+      "required": [],
+      "format": "int"
+    },
+    "SANDBOX_PLAYWRIGHT_URL": {
+      "services": ["sidecar"],
+      "secret": false,
+      "required": [],
+      "format": "http-url"
+    },
+    "SANDBOX_ROLE": {
+      "services": ["sidecar"],
+      "secret": false,
+      "required": [],
+      "format": "enum",
+      "values": ["core", "egress"],
+      "default": "core"
+    },
+    "SANDBOX_EGRESS_BROWSER_HOST": {
+      "services": ["sidecar"],
+      "secret": false,
+      "required": [],
+      "format": "host"
+    },
+    "SANDBOX_EGRESS_PROXY_HOST": {
+      "services": ["sidecar"],
+      "secret": false,
+      "required": [],
+      "format": "host"
+    },
+    "SANDBOX_EGRESS_PROXY_PORT": {
+      "services": ["sidecar"],
+      "secret": false,
+      "required": [],
+      "format": "int",
+      "default": "8899"
+    },
+    "SANDBOX_SHELL_TIMEOUT_MS": {
+      "services": ["sidecar"],
+      "secret": false,
+      "required": [],
+      "format": "int",
+      "default": "30000"
+    },
+    "SANDBOX_BACKEND": {
+      "services": ["worker"],
+      "secret": false,
+      "required": [],
+      "format": "enum",
+      "values": ["bundle", "kubernetes"],
+      "default": "bundle"
+    },
+    "SANDBOX_WORKSPACE_IDLE_TTL_MS": {
+      "services": ["worker"],
+      "secret": false,
+      "required": [],
+      "format": "int",
+      "default": "1800000"
+    },
+    "SANDBOX_BRIDGE_MAX_FILE_BYTES": {
+      "services": ["sidecar"],
+      "secret": false,
+      "required": [],
+      "format": "int",
+      "default": "104857600"
+    },
+    "SANDBOX_BRIDGE_MAX_TOTAL_BYTES": {
+      "services": ["sidecar"],
+      "secret": false,
+      "required": [],
+      "format": "int",
+      "default": "536870912"
+    },
+    "SANDBOX_BRIDGE_MAX_COLLECT_FILES": {
+      "services": ["sidecar"],
+      "secret": false,
+      "required": [],
+      "format": "int",
+      "default": "50"
+    },
+    "SANDBOX_BRIDGE_MAX_COLLECT_BYTES": {
+      "services": ["sidecar"],
+      "secret": false,
+      "required": [],
+      "format": "int",
+      "default": "209715200"
+    },
+    "SANDBOX_WALK_MAX_ENTRIES": {
+      "services": ["sidecar"],
+      "secret": false,
+      "required": [],
+      "format": "int",
+      "default": "50000"
+    },
+    "SANDBOX_WALK_MAX_DEPTH": {
+      "services": ["sidecar"],
+      "secret": false,
+      "required": [],
+      "format": "int",
+      "default": "64"
+    },
+    "SANDBOX_READ_MAX_CHARS": {
+      "services": ["sidecar"],
+      "secret": false,
+      "required": [],
+      "format": "int",
+      "default": "8000"
+    },
+    "SANDBOX_SHELL_MAX_OUTPUT_BYTES": {
+      "services": ["sidecar"],
+      "secret": false,
+      "required": [],
+      "format": "int",
+      "default": "262144"
+    },
+    "SANDBOX_WORKSPACE_LEASE_TTL_MS": {
+      "services": ["sidecar"],
+      "secret": false,
+      "required": [],
+      "format": "int"
+    },
+    "SANDBOX_IDLE_TTL_MS": {
+      "services": ["sidecar"],
+      "secret": false,
+      "required": [],
+      "format": "int",
+      "default": "600000"
+    },
+    "SANDBOX_PYTHON_TIMEOUT_MS": {
+      "services": ["sidecar"],
+      "secret": false,
+      "required": [],
+      "format": "int",
+      "default": "120000"
+    },
+    "SANDBOX_EXEC_MAX_PROCESSES": {
+      "services": ["sidecar"],
+      "secret": false,
+      "required": [],
+      "format": "int",
+      "default": "256"
+    },
+    "SANDBOX_EXEC_MAX_ADDRESS_SPACE_BYTES": {
+      "services": ["sidecar"],
+      "secret": false,
+      "required": [],
+      "format": "int",
+      "default": "1073741824"
+    },
+    "SANDBOX_DISK_PER_CONVERSATION_BYTES": {
+      "services": ["sidecar"],
+      "secret": false,
+      "required": [],
+      "format": "int",
+      "default": "1073741824"
+    },
+    "RIKOO_EGRESS_ALLOW_CIDRS": {
+      "services": ["api", "worker", "shared", "sidecar"],
+      "secret": false,
+      "required": [],
+      "format": "nonempty"
+    },
+    "RIKOO_EGRESS_DEV_ALLOWLIST": {
+      "services": ["api", "worker", "shared", "sidecar"],
+      "secret": false,
+      "required": [],
+      "format": "nonempty"
+    },
+    "BRAVE_SEARCH_API_KEY": {
+      "services": ["worker"],
+      "secret": true,
+      "required": [],
+      "format": "nonempty"
+    },
+    "QDRANT_URL": {
+      "services": ["ee"],
+      "secret": false,
+      "required": [],
+      "format": "http-url"
+    },
+    "QDRANT_API_KEY": {
+      "services": ["ee"],
+      "secret": true,
+      "required": [],
+      "format": "nonempty"
+    },
+    "QDRANT_COLLECTION": {
+      "services": ["ee"],
+      "secret": false,
+      "required": [],
+      "format": "nonempty"
+    },
+    "QDRANT_VECTOR_SIZE": {
+      "services": ["ee"],
+      "secret": false,
+      "required": [],
+      "format": "int"
+    },
+    "QDRANT_DISTANCE": {
+      "services": ["ee"],
+      "secret": false,
+      "required": [],
+      "format": "nonempty"
+    },
+    "LOG_LEVEL": {
+      "services": ["api", "sidecar"],
+      "secret": false,
+      "required": [],
+      "format": "enum",
+      "values": ["fatal", "error", "warn", "info", "debug", "trace", "silent"],
+      "default": "info"
+    },
+    "LOG_FORMAT": {
+      "services": ["api"],
+      "secret": false,
+      "required": [],
+      "format": "enum",
+      "values": ["json", "pretty"],
+      "default": "json"
+    },
+    "LOG_SLOW_QUERY_MS": {
+      "services": ["api"],
+      "secret": false,
+      "required": [],
+      "format": "int",
+      "default": "200"
+    },
+    "AUDIT_RETENTION_DAYS": {
+      "services": ["worker"],
+      "secret": false,
+      "required": [],
+      "format": "int"
+    },
+    "AUDIT_PURGE_BATCH": {
+      "services": ["worker"],
+      "secret": false,
+      "required": [],
+      "format": "int"
+    },
+    "OTEL_SDK_DISABLED": {
+      "services": ["api", "worker"],
+      "secret": false,
+      "required": [],
+      "format": "bool"
+    },
+    "OTEL_EXPORTER_OTLP_ENDPOINT": {
+      "services": ["worker", "shared"],
+      "secret": false,
+      "required": [],
+      "format": "http-url"
+    },
+    "OTEL_EXPORTER_OTLP_ENDPOINT_API": {
+      "services": ["api"],
+      "secret": false,
+      "required": [],
+      "format": "http-url"
+    },
+    "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT": {
+      "services": ["worker"],
+      "secret": false,
+      "required": [],
+      "format": "http-url"
+    },
+    "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT_API": {
+      "services": ["api"],
+      "secret": false,
+      "required": [],
+      "format": "http-url"
+    },
+    "OTEL_EXPORTER_OTLP_HEADERS": {
+      "services": ["worker"],
+      "secret": true,
+      "required": [],
+      "format": "nonempty"
+    },
+    "OTEL_EXPORTER_OTLP_HEADERS_API": {
+      "services": ["api"],
+      "secret": true,
+      "required": [],
+      "format": "nonempty"
+    },
+    "OTEL_EXPORTER_OTLP_PROTOCOL": {
+      "services": ["api", "worker"],
+      "secret": false,
+      "required": [],
+      "format": "enum",
+      "values": ["grpc", "http/protobuf", "http/json"]
+    },
+    "OTEL_EXPORTER_OTLP_COMPRESSION": {
+      "services": ["api", "worker"],
+      "secret": false,
+      "required": [],
+      "format": "nonempty"
+    },
+    "OTEL_EXPORTER_OTLP_TIMEOUT": {
+      "services": ["api", "worker"],
+      "secret": false,
+      "required": [],
+      "format": "int"
+    },
+    "OTEL_EXPORTER_PROMETHEUS_PORT_API": {
+      "services": ["api"],
+      "secret": false,
+      "required": [],
+      "format": "int",
+      "default": "9464"
+    },
+    "OTEL_METRICS_EXPORTER_API": {
+      "services": ["api"],
+      "secret": false,
+      "required": [],
+      "format": "nonempty",
+      "default": "none"
+    },
+    "OTEL_SERVICE_NAME": {
+      "services": ["worker"],
+      "secret": false,
+      "required": [],
+      "format": "nonempty",
+      "default": "rikoo-worker"
+    },
+    "OTEL_SERVICE_NAME_API": {
+      "services": ["api"],
+      "secret": false,
+      "required": [],
+      "format": "nonempty",
+      "default": "rikoo-api"
+    },
+    "OTEL_RESOURCE_ATTRIBUTES": {
+      "services": ["worker"],
+      "secret": false,
+      "required": [],
+      "format": "nonempty"
+    },
+    "OTEL_TRACES_SAMPLER": {
+      "services": ["worker"],
+      "secret": false,
+      "required": [],
+      "format": "nonempty"
+    },
+    "OTEL_TRACES_SAMPLER_ARG": {
+      "services": ["worker"],
+      "secret": false,
+      "required": [],
+      "format": "nonempty"
+    },
+    "OTEL_LOG_LEVEL": {
+      "services": ["api", "worker"],
+      "secret": false,
+      "required": [],
+      "format": "nonempty"
+    },
+    "OTEL_GENAI_CAPTURE_CONTENT": {
+      "services": ["worker"],
+      "secret": false,
+      "required": [],
+      "format": "bool",
+      "default": "false"
+    },
+    "OTEL_INSTRUMENTATION_GENAI_CAPTURE_MESSAGE_CONTENT": {
+      "services": ["worker"],
+      "secret": false,
+      "required": [],
+      "format": "bool"
+    }
+  }
+}

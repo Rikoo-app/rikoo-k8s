@@ -305,7 +305,20 @@ rikoo:
     pullSecrets: []
     # e.g. - name: rikoo-registry
 
-  # -- Additional environment variables for api AND worker. Names must be declared in the product manifest.
+  # -- Product settings the chart does not model, for api AND worker, as a `NAME: value` map. Every
+  # name is checked against `env-contract.json`, shipped with this chart: a name the product does not
+  # read, a secret (it would land in a ConfigMap), a name the chart already sets, or a name no
+  # reachable service reads is refused at render time, with the reason. Values are checked against
+  # the format the contract declares. `helm show values` and VARIABLES.md list what you may set.
+  settings: {}
+  # e.g.
+  #   RUN_HISTORY_MAX_TURNS: "60"
+  #   RAG_HNSW_EF_SEARCH: "120"
+
+  # -- Additional environment variables for api AND worker, as a list, for a name this version of the
+  # contract does not know or a value that must come from elsewhere. This is the escape hatch: names
+  # are NOT checked here. The one refusal that remains is a secret carrying a literal value, which
+  # would be written into the Deployment; use `valueFrom` with a `secretKeyRef` instead.
   additionalEnv: []
   # -- Secrets or ConfigMaps of additional environment variables for api AND worker
   additionalEnvFrom: []
@@ -401,7 +414,9 @@ rikoo:
     # -- Replicas if HPA/KEDA is not enabled. Defaults to `rikoo.replicas`
     replicas: null
     revisionHistoryLimit: null
-    # -- Additional settings of the api, rendered as environment variables (names of the product manifest)
+    # -- Settings only the api reads, as a `NAME: value` map, checked against `env-contract.json`
+    # exactly as `rikoo.settings` is. A variable the worker alone reads is refused here, because it
+    # would never be read.
     settings: {}
     # e.g. S3_MAX_UPLOAD_BYTES: "20000000"
     hpa:
@@ -420,6 +435,9 @@ rikoo:
       metricType: "Utilization"
       value: "70"
       containerName: ""
+      # -- Full KEDA trigger list, passed through as is. Set, it REPLACES the single trigger above:
+      # a queue-driven process does not scale on its own CPU. See `examples/ha-external-stores`.
+      triggers: []
     pdb:
       # -- Create a PodDisruptionBudget for the api
       create: true
@@ -500,7 +518,9 @@ rikoo:
     dbPool: 25
     # -- Runs driven in parallel by one worker (`RUN_CONCURRENCY`)
     runConcurrency: 1
-    # -- Additional settings of the worker, rendered as environment variables (RUN_*, RAG_*, KNOWLEDGE_*...)
+    # -- Settings only the worker reads (`RUN_*`, `RAG_*`, `KNOWLEDGE_*`, `SANDBOX_*`), as a
+    # `NAME: value` map, checked against `env-contract.json` exactly as `rikoo.settings` is. A variable
+    # the api alone reads is refused here, because it would never be read.
     settings: {}
     # e.g. RUN_LOCK_TTL_MS: "60000"
     # -- Wait for the api to be ready before starting (its entrypoint applies the migrations; a worker that starts first fails on missing tables for a few seconds)
@@ -521,6 +541,9 @@ rikoo:
       metricType: "Utilization"
       value: "70"
       containerName: ""
+      # -- Full KEDA trigger list, passed through as is. Set, it REPLACES the single trigger above:
+      # a queue-driven process does not scale on its own CPU. See `examples/ha-external-stores`.
+      triggers: []
     pdb:
       create: true
       minAvailable: ""
